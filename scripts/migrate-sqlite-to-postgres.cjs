@@ -120,6 +120,18 @@ function convertValue(value, targetColumn) {
 		return value;
 	}
 
+	if (targetColumn.data_type.startsWith('timestamp')) {
+		if (typeof value === 'number' || /^\d{11,}$/.test(value)) {
+			return new Date(Number(value)).toISOString();
+		}
+	}
+
+	if (targetColumn.data_type === 'date') {
+		if (typeof value === 'number' || /^\d{11,}$/.test(value)) {
+			return new Date(Number(value)).toISOString().slice(0, 10);
+		}
+	}
+
 	return value;
 }
 
@@ -141,10 +153,14 @@ async function insertRows(client, table, columns, rows) {
 			return `(${placeholders.join(', ')})`;
 		});
 
-		await client.query(
-			`INSERT INTO ${quoteIdentifier(table)} (${quotedColumns}) VALUES ${tuples.join(', ')}`,
-			parameters,
-		);
+		try {
+			await client.query(
+				`INSERT INTO ${quoteIdentifier(table)} (${quotedColumns}) VALUES ${tuples.join(', ')}`,
+				parameters,
+			);
+		} catch (error) {
+			throw new Error(`Failed to insert ${table} rows ${offset}-${offset + batch.length - 1}`, { cause: error });
+		}
 	}
 }
 

@@ -14,7 +14,8 @@ The migration preserves uploaded files by reusing the existing uploads volume.
 It transfers Directus metadata, users, roles, policies, permissions, presets,
 activity, and all custom collections. `directus_migrations` is intentionally
 kept from the freshly bootstrapped PostgreSQL database so its engine-specific
-schema history stays correct.
+schema history stays correct. SQLite millisecond timestamps are converted to
+native PostgreSQL date and timestamp values during the transfer.
 
 1. Create a schema snapshot and an offline backup of `database.sqlite`.
 2. Start PostgreSQL and let Directus create its PostgreSQL system tables.
