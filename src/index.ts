@@ -18,6 +18,7 @@ import type {
 } from './types';
 import { buildColumnPlans } from './utils/column-plan';
 import { getDefaultDisplay } from './utils/default-display';
+import { buildDisplayQuery } from './utils/display-query';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
@@ -127,7 +128,14 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			return buildColumnPlans(collection.value, fields.value, metadata);
 		});
 
-		const queryFields = computed(() => [...new Set(columnPlans.value.flatMap(({ fetchPaths }) => fetchPaths))]);
+		const displayQuery = computed(() =>
+			collection.value
+				? buildDisplayQuery(collection.value, fields.value, metadata)
+				: { alias: {}, fields: [], valuePaths: {} },
+		);
+		const queryFields = computed(() => displayQuery.value.fields);
+		const queryAlias = computed(() => displayQuery.value.alias);
+		const itemValuePaths = computed(() => displayQuery.value.valuePaths);
 		const globalSearchFilter = computed(() => buildGlobalSearchFilter(columnPlans.value, search.value));
 		const perColumnFilter = computed(() => buildColumnFilters(columnPlans.value, columnFilters.value));
 		const searchableFields = computed(() =>
@@ -155,6 +163,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			totalCount,
 			totalPages,
 		} = useItems(collection, {
+			alias: queryAlias,
 			fields: queryFields,
 			filter: effectiveFilter,
 			filterSystem,
@@ -256,6 +265,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			fieldsInCollection,
 			info,
 			itemCount,
+			itemValuePaths,
 			items,
 			limit,
 			loading,

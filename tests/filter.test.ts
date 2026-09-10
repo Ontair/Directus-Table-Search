@@ -5,12 +5,10 @@ import { buildColumnFilters, buildGlobalSearchFilter, buildLeafCondition, combin
 
 const plans: ColumnPlan[] = [
 	{
-		fetchPaths: ['title'],
 		key: 'title',
 		searchLeaves: [{ path: 'title', type: 'string' }],
 	},
 	{
-		fetchPaths: ['author.first_name', 'author.last_name'],
 		key: 'author',
 		searchLeaves: [
 			{ path: 'author.first_name', type: 'string' },
@@ -18,7 +16,6 @@ const plans: ColumnPlan[] = [
 		],
 	},
 	{
-		fetchPaths: ['views'],
 		key: 'views',
 		searchLeaves: [{ path: 'views', type: 'integer' }],
 	},

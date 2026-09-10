@@ -41,7 +41,6 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 
 	return {
 		key,
-		fetchPaths: unique(resolved.map(({ path }) => path)),
 		searchLeaves: uniqueLeaves(
 			resolved
 				.filter(({ field }) => isSearchable(field))
@@ -80,10 +79,6 @@ function isSearchable(field: Field): boolean {
 
 function isColumnPlan(plan: ColumnPlan | null): plan is ColumnPlan {
 	return plan !== null;
-}
-
-function unique(values: string[]): string[] {
-	return [...new Set(values)];
 }
 
 function uniqueLeaves(values: SearchLeaf[]): SearchLeaf[] {

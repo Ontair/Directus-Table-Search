@@ -173,7 +173,7 @@ function updateSort(value: TableSort | null): void {
 }
 
 function displayValue(item: Item, field: string): unknown {
-	return getValueAtPath(item as Record<string, unknown>, field);
+	return getValueAtPath(item as Record<string, unknown>, props.itemValuePaths[field] ?? field);
 }
 </script>
 

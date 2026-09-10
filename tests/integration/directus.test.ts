@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createDirectusMetadataAccess } from '../../src/services/directus-metadata';
 import { buildColumnPlans } from '../../src/utils/column-plan';
+import { buildDisplayQuery } from '../../src/utils/display-query';
 import { buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
 import { getValueAtPath } from '../../src/utils/object';
 
@@ -70,6 +71,24 @@ describe('Directus filter integration', () => {
 		expect(getValueAtPath(article!, 'tags.tags_id.name')).toEqual(['Relational Search']);
 	});
 
+	it('isolates repeated relational roots with the same alias strategy as Directus Table', async () => {
+		const metadata = await loadMetadata(admin);
+		const visibleFields = ['slug', 'editor', 'editor.first_name', 'tags.tags_id.name', 'tags.tags_id.id'];
+		const displayQuery = buildDisplayQuery(collections.articles, visibleFields, metadata);
+		const response = await admin.getItems(collections.articles, {
+			alias: displayQuery.alias,
+			fields: displayQuery.fields,
+			filter: { slug: { _eq: 'article-01' } },
+		});
+
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		const [article] = response.data;
+		expect(article).toBeDefined();
+		expect(getValueAtPath(article!, displayQuery.valuePaths['editor.first_name']!)).toBe(fixtures.restrictedFirstName);
+		expect(getValueAtPath(article!, displayQuery.valuePaths['tags.tags_id.name']!)).toEqual(['Relational Search']);
+		expect(getValueAtPath(article!, displayQuery.valuePaths['tags.tags_id.id']!)).toEqual([fixtures.relationTagId]);
+	});
+
 	it('preserves an existing filter when generated visible-column search is active', async () => {
 		const metadata = await loadMetadata(admin);
 		const plans = buildColumnPlans(collections.articles, ['title'], metadata);
@@ -114,8 +133,8 @@ describe('Directus filter integration', () => {
 			const plans = buildColumnPlans(collections.articles, ['author'], metadata);
 			const [authorPlan] = plans;
 
-			expect(authorPlan?.fetchPaths).not.toContain('author.code');
-			expect(authorPlan?.fetchPaths).toContain('author.name');
+			expect(authorPlan?.searchLeaves.map(({ path }) => path)).not.toContain('author.code');
+			expect(authorPlan?.searchLeaves.map(({ path }) => path)).toContain('author.name');
 
 			const safeFilter = buildGlobalSearchFilter(plans, 'Ada Lovelace');
 			const safeResponse = await restricted.getItems(collections.articles, {
@@ -152,10 +171,12 @@ describe('Directus filter integration', () => {
 });
 
 interface FixtureIds {
+	relationTagId: number;
 	restrictedFirstName: string;
 }
 
 interface QueryOptions {
+	alias?: Record<string, string>;
 	fields?: string[];
 	filter?: Record<string, unknown> | null;
 	limit?: number;
@@ -205,6 +226,7 @@ class DirectusClient {
 
 	async getItems(collection: string, options: QueryOptions): Promise<ApiResponse> {
 		const query: Record<string, string> = {};
+		for (const [alias, field] of Object.entries(options.alias ?? {})) query[`alias[${alias}]`] = field;
 		if (options.fields) query.fields = options.fields.join(',');
 		if (options.filter) query.filter = JSON.stringify(options.filter);
 		if (options.limit !== undefined) query.limit = String(options.limit);
@@ -291,7 +313,10 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 	});
 	await ensureJunctionItem(client, articleIds[0]!, relationTag.id as number);
 
-	return { restrictedFirstName: restrictedUser.first_name as string };
+	return {
+		relationTagId: relationTag.id as number,
+		restrictedFirstName: restrictedUser.first_name as string,
+	};
 }
 
 async function ensureCollection(

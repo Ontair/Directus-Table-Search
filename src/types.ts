@@ -54,7 +54,6 @@ export interface SearchLeaf {
 }
 
 export interface ColumnPlan {
-	fetchPaths: string[];
 	key: string;
 	searchLeaves: SearchLeaf[];
 }
@@ -80,6 +79,7 @@ export interface LayoutComponentProps {
 	error?: unknown;
 	fields: string[];
 	itemCount?: number | null;
+	itemValuePaths: Record<string, string>;
 	items: Item[];
 	limit: number;
 	loading: boolean;

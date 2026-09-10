@@ -130,6 +130,31 @@ export function createSchema(options: { denied?: string[] } = {}): MetadataAcces
 	];
 
 	const denied = new Set(options.denied ?? []);
+	const getField = (collection: string, fieldPath: string): Field | null => {
+		const segments = fieldPath.split('.').filter(Boolean);
+		let currentCollection = collection;
+		let currentField: Field | null = null;
+
+		for (const [index, segment] of segments.entries()) {
+			currentField = fields.find((entry) => entry.collection === currentCollection && entry.field === segment) ?? null;
+			if (!currentField || index === segments.length - 1) return currentField;
+
+			const relation = relations.find(
+				(entry) =>
+					(entry.collection === currentCollection && entry.field === segment && entry.related_collection) ||
+					(entry.related_collection === currentCollection && entry.meta?.one_field === segment),
+			);
+			if (!relation) return null;
+
+			currentCollection =
+				relation.collection === currentCollection && relation.field === segment
+					? (relation.related_collection ?? '')
+					: relation.collection;
+			if (!currentCollection) return null;
+		}
+
+		return currentField;
+	};
 
 	return {
 		canReadField: (collection, fieldName) => !denied.has(`${collection}.${fieldName}`),
@@ -143,8 +168,7 @@ export function createSchema(options: { denied?: string[] } = {}): MetadataAcces
 			if (currentField.field === 'tags') return ['tags_id.name', 'tags_id.id'];
 			return [];
 		},
-		getField: (collection, fieldName) =>
-			fields.find((entry) => entry.collection === collection && entry.field === fieldName) ?? null,
+		getField,
 		getPrimaryKeyField: (collection) =>
 			fields.find((entry) => entry.collection === collection && entry.schema?.is_primary_key) ?? null,
 		getRelationsForField: (collection, fieldName) =>

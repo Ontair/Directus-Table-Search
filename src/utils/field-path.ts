@@ -12,6 +12,17 @@ export function resolveReadableFieldPath(
 	path: string,
 	metadata: MetadataAccess,
 ): ResolvedFieldPath | null {
+	return resolveFieldPath(rootCollection, path, metadata, (collection, field) =>
+		metadata.canReadField(collection, field),
+	);
+}
+
+export function resolveFieldPath(
+	rootCollection: string,
+	path: string,
+	metadata: MetadataAccess,
+	canUseField: (collection: string, field: string) => boolean = () => true,
+): ResolvedFieldPath | null {
 	const segments = path.split('.').filter(Boolean);
 	if (segments.length === 0 || segments.some((segment) => segment.startsWith('$') || segment.includes(':')))
 		return null;
@@ -21,7 +32,7 @@ export function resolveReadableFieldPath(
 
 	for (const [index, segment] of segments.entries()) {
 		field = metadata.getField(collection, segment);
-		if (!field || !metadata.canReadField(collection, segment)) return null;
+		if (!field || !canUseField(collection, segment)) return null;
 
 		if (index === segments.length - 1) break;
 

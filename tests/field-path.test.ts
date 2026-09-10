@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveReadableFieldPath } from '../src/utils/field-path';
+import { resolveFieldPath, resolveReadableFieldPath } from '../src/utils/field-path';
 import { createSchema } from './fixtures/schema';
 
 describe('resolveReadableFieldPath', () => {
@@ -18,6 +18,7 @@ describe('resolveReadableFieldPath', () => {
 	it('rejects a path when a field at any relation hop is not readable', () => {
 		const metadata = createSchema({ denied: ['articles_tags.tags_id'] });
 		expect(resolveReadableFieldPath('articles', 'tags.tags_id.name', metadata)).toBeNull();
+		expect(resolveFieldPath('articles', 'tags.tags_id.name', metadata)?.field.field).toBe('name');
 	});
 
 	it('rejects dynamic M2A and internal virtual paths safely', () => {
