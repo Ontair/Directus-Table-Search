@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Item } from '@directus/types';
-import { computed, inject, type Ref, ref, toRefs, watch } from 'vue';
+import { computed, inject, type CSSProperties, type Ref, ref, toRefs, watch } from 'vue';
 
 import type { LayoutComponentProps, TableHeader, TableSort } from '../types';
+import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
 
 defineOptions({ inheritAttrs: false });
@@ -22,6 +23,8 @@ const table = ref<HTMLElement>();
 const mainElement = inject<Ref<Element | undefined>>('main-element');
 const pageSizes = [25, 50, 100, 250, 500, 1000];
 const alignments = ['left', 'center', 'right'] as const;
+const auxiliaryColumnWidth = 48;
+const focusedFilter = ref<string | null>(null);
 
 const selectionWritable = computed({
 	get: () => props.selection,
@@ -38,6 +41,15 @@ const activeFilterCount = computed(
 );
 
 const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFilterCount.value > 0);
+
+const inlineFilterGridStyle = computed<CSSProperties>(() => ({
+	gridTemplateColumns: [
+		...(props.sortAllowed ? [`${auxiliaryColumnWidth}px`] : []),
+		...(props.showSelect !== 'none' ? [`${auxiliaryColumnWidth}px`] : []),
+		...props.tableHeaders.map((header) => `${header.width}px`),
+		`${auxiliaryColumnWidth}px`,
+	].join(' '),
+}));
 
 watch(
 	() => props.page,
@@ -69,6 +81,18 @@ function clearColumnFilters(): void {
 	emit('update:columnFilters', {});
 }
 
+function inlineFilterControlStyle(header: TableHeader, index: number): CSSProperties {
+	const focused = focusedFilter.value === header.value;
+	const width = getInlineFilterControlWidth(header.width, props.columnFilters[header.value] ?? '', focused);
+	const alignToEnd = shouldExpandInlineFilterLeft(index, props.tableHeaders.length);
+
+	return {
+		inlineSize: `${width}px`,
+		insetInlineEnd: alignToEnd ? '8px' : 'auto',
+		insetInlineStart: alignToEnd ? 'auto' : '8px',
+	};
+}
+
 function updateSort(value: TableSort | null): void {
 	props.onSortChange(value);
 }
@@ -81,7 +105,7 @@ function displayValue(item: Item, field: string): unknown {
 <template>
 	<div class="table-search-layout">
 		<section
-			v-if="showColumnFilters && tableHeaders.length > 0"
+			v-if="showColumnFilters && columnFilterMode === 'panel' && tableHeaders.length > 0"
 			class="column-filter-panel"
 			aria-label="Column filters"
 		>
@@ -107,6 +131,53 @@ function displayValue(item: Item, field: string): unknown {
 						<template #prepend><v-icon name="search" x-small /></template>
 					</v-input>
 				</label>
+			</div>
+		</section>
+
+		<section
+			v-else-if="showColumnFilters && tableHeaders.length > 0"
+			class="inline-column-filters"
+			aria-label="Column filters"
+		>
+			<div class="inline-column-filters__grid" :style="inlineFilterGridStyle">
+				<div v-if="sortAllowed" class="inline-column-filters__spacer" aria-hidden="true" />
+				<div v-if="showSelect !== 'none'" class="inline-column-filters__spacer" aria-hidden="true" />
+
+				<label v-for="(header, index) in tableHeaders" :key="header.value" class="inline-column-filter">
+					<span class="inline-column-filter__label" :title="header.description || header.text">
+						{{ header.text }}
+					</span>
+					<span
+						class="inline-column-filter__control"
+						:class="{ 'inline-column-filter__control--focused': focusedFilter === header.value }"
+						:style="inlineFilterControlStyle(header, index)"
+						@focusin="focusedFilter = header.value"
+						@focusout="focusedFilter = null"
+					>
+						<v-input
+							:model-value="columnFilters[header.value] || ''"
+							:disabled="!searchableFields.includes(header.value)"
+							:placeholder="searchableFields.includes(header.value) ? 'Filter…' : 'Not searchable'"
+							small
+							@update:model-value="updateColumnFilter(header.value, $event)"
+						>
+							<template #prepend><v-icon name="search" x-small /></template>
+						</v-input>
+					</span>
+				</label>
+
+				<div class="inline-column-filters__actions">
+					<button
+						v-if="activeFilterCount"
+						class="inline-column-filters__clear"
+						type="button"
+						title="Clear column filters"
+						aria-label="Clear column filters"
+						@click="clearColumnFilters"
+					>
+						<v-icon name="filter_alt_off" small />
+					</button>
+				</div>
 			</div>
 		</section>
 
@@ -288,6 +359,91 @@ function displayValue(item: Item, field: string): unknown {
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.inline-column-filters {
+	position: relative;
+	z-index: 3;
+	inline-size: max-content;
+	min-inline-size: calc(100% - (2 * var(--content-padding)));
+	margin-inline: var(--content-padding);
+	background: var(--theme--background-normal);
+	border-block: var(--theme--border-width) solid var(--theme--border-color-subdued);
+}
+
+.inline-column-filters__grid {
+	display: grid;
+	align-items: stretch;
+	inline-size: max-content;
+	min-inline-size: 100%;
+}
+
+.inline-column-filters__spacer,
+.inline-column-filters__actions,
+.inline-column-filter {
+	block-size: 68px;
+	border-inline-end: var(--theme--border-width) solid var(--theme--border-color-subdued);
+}
+
+.inline-column-filter {
+	position: relative;
+	display: block;
+	min-inline-size: 0;
+	padding: 7px 8px 8px;
+}
+
+.inline-column-filter__label {
+	display: block;
+	overflow: hidden;
+	color: var(--theme--foreground-subdued);
+	font-size: 11px;
+	line-height: 16px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.inline-column-filter__control {
+	position: absolute;
+	inset-block-end: 8px;
+	z-index: 1;
+	display: block;
+	max-inline-size: none;
+	transition: inline-size var(--fast) var(--transition);
+}
+
+.inline-column-filter__control--focused {
+	z-index: 4;
+	filter: drop-shadow(0 4px 10px rgb(0 0 0 / 18%));
+}
+
+.inline-column-filter__control :deep(.v-input) {
+	inline-size: 100%;
+}
+
+.inline-column-filters__actions {
+	display: grid;
+	place-items: center;
+	border-inline-end: 0;
+}
+
+.inline-column-filters__clear {
+	display: grid;
+	inline-size: 32px;
+	block-size: 32px;
+	padding: 0;
+	color: var(--theme--foreground-subdued);
+	cursor: pointer;
+	background: transparent;
+	border: 0;
+	border-radius: var(--theme--border-radius);
+	place-items: center;
+}
+
+.inline-column-filters__clear:hover,
+.inline-column-filters__clear:focus-visible {
+	color: var(--theme--primary);
+	background: var(--theme--primary-background);
+	outline: none;
 }
 
 .v-table {

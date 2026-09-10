@@ -8,13 +8,14 @@ A schema-independent Directus layout extension for searching and filtering the v
 - Relational columns are searched through the fields required by their configured Directus display.
 - M2O, O2M, M2M, nested fields, and system-user displays use Directus relation metadata rather than schema-specific names.
 - Each visible column has an independent filter. Display fields inside one relational column are combined with OR; different columns are combined with AND.
+- Column filters can use a responsive panel or a column-aligned row. Aligned filters follow resized column widths and expand over adjacent cells while focused so long values remain easy to edit without changing table geometry.
 - Existing user and system filters stay active and are combined with the generated filters.
 - Read permissions are checked for every field and relation hop before a query or filter path is generated.
 - Native Directus pagination, sorting, selection, field reordering, column resizing, displays, and manual sorting remain available.
 
 ## Compatibility
 
-The package declares support for Directus `^11.12.0 || ^12.0.0`. The integration suite is exercised against Directus 11.12.0, the version used by the local development environment.
+The package declares support for Directus `^11.12.0 || ^12.0.0`. The complete suite and Data Studio checks are exercised against Directus 11.12.0. API, extension loading, both filter layouts, and adaptive input sizing are also verified against Directus 12.0.2.
 
 ## Install
 
@@ -66,6 +67,18 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+Run the real-API suite against a disposable or local development Directus instance:
+
+```sh
+DIRECTUS_ADMIN_EMAIL=admin@example.test \
+DIRECTUS_ADMIN_PASSWORD=local-development-password \
+npm run test:integration
+```
+
+The suite creates idempotent `table_search_it_*` fixtures, including M2O, O2M, M2M, system-user relations, and a restricted test policy. Never point it at a production instance.
+
+For a Directus edition where custom row permission rules are unavailable, set `DIRECTUS_EXPECT_ROW_PERMISSION_RULES=false`. Field-level permission checks still run; only the row-rule assertion is skipped. If that edition also prevents creating field restrictions, use `DIRECTUS_TEST_RESTRICTED_PERMISSIONS=false`; relational, filter-composition, sorting, and pagination integration cases still run, while restricted-permission cases are skipped.
 
 The domain logic under `src/utils/` is framework-independent and covered by unit tests. The layout adapter reads fields, relations, displays, and permissions from Directus at runtime, keeping the implementation reusable across collections.
 

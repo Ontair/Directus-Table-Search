@@ -8,8 +8,11 @@ export type ColumnFilterValues = Record<string, string>;
 
 export type TableSpacing = 'compact' | 'cozy' | 'comfortable';
 
+export type ColumnFilterMode = 'inline' | 'panel';
+
 export interface LayoutOptions {
 	align?: Record<string, ColumnAlignment>;
+	columnFilterMode?: ColumnFilterMode;
 	showColumnFilters?: boolean;
 	spacing?: TableSpacing;
 	widths?: Record<string, number>;
@@ -72,6 +75,7 @@ export interface ResolvedFieldPath {
 export interface LayoutComponentProps {
 	changeManualSort: (data: { item: number | string; to: number | string }) => Promise<void>;
 	collection: string;
+	columnFilterMode: ColumnFilterMode;
 	columnFilters: ColumnFilterValues;
 	error?: unknown;
 	fields: string[];

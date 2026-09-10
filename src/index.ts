@@ -7,7 +7,15 @@ import TableActions from './components/table-actions.vue';
 import TableLayout from './components/table-layout.vue';
 import TableOptions from './components/table-options.vue';
 import { createDirectusMetadataAccess } from './services/directus-metadata';
-import type { ColumnAlignment, ColumnFilterValues, LayoutOptions, LayoutQuery, TableHeader, TableSort } from './types';
+import type {
+	ColumnAlignment,
+	ColumnFilterMode,
+	ColumnFilterValues,
+	LayoutOptions,
+	LayoutQuery,
+	TableHeader,
+	TableSort,
+} from './types';
 import { buildColumnPlans } from './utils/column-plan';
 import { getDefaultDisplay } from './utils/default-display';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
@@ -90,6 +98,13 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			get: () => layoutQuery.value?.columnFilters ?? {},
 			set: (value) => {
 				layoutQuery.value = { ...layoutQuery.value, columnFilters: value };
+			},
+		});
+
+		const columnFilterMode = computed({
+			get: () => layoutOptions.value?.columnFilterMode ?? 'panel',
+			set: (value: ColumnFilterMode) => {
+				layoutOptions.value = { ...layoutOptions.value, columnFilterMode: value };
 			},
 		});
 
@@ -234,6 +249,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		return {
 			activeFields,
 			changeManualSort,
+			columnFilterMode,
 			columnFilters,
 			error,
 			fields,
