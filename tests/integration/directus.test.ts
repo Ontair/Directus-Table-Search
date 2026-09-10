@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createDirectusMetadataAccess } from '../../src/services/directus-metadata';
 import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
+import { getValueAtPath } from '../../src/utils/object';
 
 const baseUrl = process.env.DIRECTUS_URL ?? 'http://127.0.0.1:8055';
 const adminEmail = requiredEnvironment('DIRECTUS_ADMIN_EMAIL');
@@ -54,6 +55,19 @@ describe('Directus filter integration', () => {
 			expect(response.status, `${testCase.field}: ${JSON.stringify(response.body)}`).toBe(200);
 			expect(response.data.map((item) => item.slug)).toContain(testCase.slug);
 		}
+	});
+
+	it('reads explicitly selected fields through O2M and M2M response arrays', async () => {
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug', 'comments.body', 'tags.tags_id.name'],
+			filter: { slug: { _eq: 'article-01' } },
+		});
+
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		const [article] = response.data;
+		expect(article).toBeDefined();
+		expect(getValueAtPath(article!, 'comments.body')).toEqual(['nested-comment-needle']);
+		expect(getValueAtPath(article!, 'tags.tags_id.name')).toEqual(['Relational Search']);
 	});
 
 	it('preserves an existing filter when generated visible-column search is active', async () => {
