@@ -34,8 +34,8 @@
 		"host": "^11.12.0 || ^12.0.0"
 	},
 	"devDependencies": {
-		"@directus/extensions-sdk": "14.0.0",
-		"@directus/types": "13.2.0",
+		"@directus/extensions-sdk": "18.0.0",
+		"@directus/types": "16.0.0",
 		"@eslint/js": "9.35.0",
 		"@types/node": "22.18.1",
 		"@vitejs/plugin-vue": "5.2.3",
@@ -48,9 +48,9 @@
 		"typescript": "5.8.3",
 		"typescript-eslint": "8.42.0",
 		"vitest": "3.2.4",
-		"vue": "3.5.13",
+		"vue": "3.5.24",
 		"vue-eslint-parser": "10.2.0",
-		"vue-router": "4.5.0",
+		"vue-router": "4.6.3",
 		"vue-tsc": "3.0.6"
 	}
 }

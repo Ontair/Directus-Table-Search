@@ -22,7 +22,6 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		options: TableOptions,
 		sidebar: () => null,
 	},
-	headerShadow: false,
 	setup(props, { emit }) {
 		const router = useRouter();
 		const stores = useStores();
