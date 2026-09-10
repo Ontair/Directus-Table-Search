@@ -1,5 +1,6 @@
 import eslint from '@eslint/js';
 import vue from 'eslint-plugin-vue';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -30,7 +31,15 @@ export default tseslint.config(
 		},
 	},
 	{
-		files: ['*.js'],
+		files: ['**/*.{js,cjs,mjs}'],
 		...tseslint.configs.disableTypeChecked,
+		languageOptions: {
+			...tseslint.configs.disableTypeChecked.languageOptions,
+			globals: globals.node,
+		},
+		rules: {
+			...tseslint.configs.disableTypeChecked.rules,
+			'@typescript-eslint/no-require-imports': 'off',
+		},
 	},
 );

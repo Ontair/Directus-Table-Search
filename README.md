@@ -68,6 +68,11 @@ npm test
 npm run build
 ```
 
+The repository includes a local PostgreSQL 16 stack for database-dependent
+integration and Data Studio testing. See
+[`docs/local-postgres.md`](docs/local-postgres.md) for startup and one-time
+SQLite migration instructions.
+
 Run the real-API suite against a disposable or local development Directus instance:
 
 ```sh

@@ -1,0 +1,68 @@
+name: directus
+
+services:
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-directus}
+      POSTGRES_USER: ${POSTGRES_USER:-directus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-directus-local-development}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - directus_v11_postgres:/var/lib/postgresql/data
+
+  directus:
+    image: directus/directus:11.12.0
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - '8055:8055'
+    environment:
+      KEY: ${DIRECTUS_KEY:-local-development-key}
+      SECRET: ${DIRECTUS_SECRET:-local-development-secret-change-before-sharing}
+      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD:-directus}
+      DB_CLIENT: pg
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-directus}
+      DB_USER: ${POSTGRES_USER:-directus}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-directus-local-development}
+      WEBSOCKETS_ENABLED: 'true'
+      QUERYSTRING_MAX_PARSE_DEPTH: '20'
+      REGIONAL_ADMIN_ROLE_ID: ${REGIONAL_ADMIN_ROLE_ID:-b7f90998-3578-4470-86d7-c5adf81f5494}
+      CURATOR_ROLE_ID: ${CURATOR_ROLE_ID:-38cd95b6-71d6-4f63-8832-1b11c3d11f1a}
+    volumes:
+      - directus_v11_uploads:/directus/uploads
+      - ${DIRECTUS_EXTENSIONS_DIR:-../directus/extensions}:/directus/extensions
+
+  migrate-sqlite:
+    image: directus/directus:11.12.0
+    profiles: ['migration']
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      PGHOST: database
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-directus}
+      PGUSER: ${POSTGRES_USER:-directus}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-directus-local-development}
+      SQLITE_SOURCE: /source/database.sqlite
+      MIGRATION_CONFIRM: ${MIGRATION_CONFIRM:-}
+    volumes:
+      - directus_v11_data:/source:ro
+      - ./scripts/migrate-sqlite-to-postgres.cjs:/migration/migrate-sqlite-to-postgres.cjs:ro
+    command: ['node', '/migration/migrate-sqlite-to-postgres.cjs']
+
+volumes:
+  directus_v11_data:
+  directus_v11_postgres:
+  directus_v11_uploads:
