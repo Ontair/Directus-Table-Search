@@ -1,10 +1,22 @@
 <script setup lang="ts">
 import type { Item } from '@directus/types';
-import { computed, inject, type CSSProperties, type Ref, ref, toRefs, watch } from 'vue';
+import {
+	computed,
+	inject,
+	nextTick,
+	onBeforeUnmount,
+	onMounted,
+	type CSSProperties,
+	type Ref,
+	ref,
+	toRefs,
+	watch,
+} from 'vue';
 
 import type { LayoutComponentProps, TableHeader, TableSort } from '../types';
 import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
+import { getTableGridMetrics } from '../utils/table-grid';
 
 defineOptions({ inheritAttrs: false });
 
@@ -19,12 +31,17 @@ const emit = defineEmits<{
 }>();
 
 const { collection } = toRefs(props);
-const table = ref<HTMLElement>();
+const table = ref<HTMLElement | { $el?: Element } | null>(null);
 const mainElement = inject<Ref<Element | undefined>>('main-element');
 const pageSizes = [25, 50, 100, 250, 500, 1000];
 const alignments = ['left', 'center', 'right'] as const;
-const auxiliaryColumnWidth = 48;
+const fallbackAuxiliaryColumnWidth = 36;
 const focusedFilter = ref<string | null>(null);
+const measuredGridTemplateColumns = ref<string | null>(null);
+const measuredColumnWidths = ref<number[]>([]);
+
+let headerResizeObserver: ResizeObserver | undefined;
+let observedHeaderRow: HTMLElement | null = null;
 
 const selectionWritable = computed({
 	get: () => props.selection,
@@ -43,18 +60,75 @@ const activeFilterCount = computed(
 const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFilterCount.value > 0);
 
 const inlineFilterGridStyle = computed<CSSProperties>(() => ({
-	gridTemplateColumns: [
-		...(props.sortAllowed ? [`${auxiliaryColumnWidth}px`] : []),
-		...(props.showSelect !== 'none' ? [`${auxiliaryColumnWidth}px`] : []),
-		...props.tableHeaders.map((header) => `${header.width}px`),
-		`${auxiliaryColumnWidth}px`,
-	].join(' '),
+	gridTemplateColumns:
+		measuredGridTemplateColumns.value ??
+		[
+			...(props.sortAllowed ? [`${fallbackAuxiliaryColumnWidth}px`] : []),
+			...(props.showSelect !== 'none' ? [`${fallbackAuxiliaryColumnWidth}px`] : []),
+			...props.tableHeaders.map((header) => `${header.width}px`),
+			'minmax(0, 1fr)',
+			`${fallbackAuxiliaryColumnWidth}px`,
+		].join(' '),
 }));
+
+watch(table, scheduleTableGridSync, { flush: 'post' });
+
+watch(
+	[
+		() => props.tableHeaders,
+		() => props.showSelect,
+		() => props.sortAllowed,
+		() => props.loading,
+		() => props.showColumnFilters,
+		() => props.columnFilterMode,
+	],
+	scheduleTableGridSync,
+	{ deep: true, flush: 'post' },
+);
 
 watch(
 	() => props.page,
 	() => mainElement?.value?.scrollTo({ top: 0, behavior: 'smooth' }),
 );
+
+onMounted(() => {
+	if (typeof ResizeObserver !== 'undefined') {
+		headerResizeObserver = new ResizeObserver(syncTableGrid);
+	}
+
+	scheduleTableGridSync();
+});
+
+onBeforeUnmount(() => headerResizeObserver?.disconnect());
+
+function scheduleTableGridSync(): void {
+	void nextTick(syncTableGrid);
+}
+
+function syncTableGrid(): void {
+	const tableRef = table.value;
+	const tableRoot = tableRef instanceof Element ? tableRef : tableRef?.$el;
+	const headerRow = tableRoot?.querySelector<HTMLElement>('thead.table-header > tr') ?? null;
+
+	if (headerRow !== observedHeaderRow) {
+		headerResizeObserver?.disconnect();
+		observedHeaderRow = headerRow;
+		if (headerRow) headerResizeObserver?.observe(headerRow);
+	}
+
+	if (!headerRow) {
+		measuredGridTemplateColumns.value = null;
+		measuredColumnWidths.value = [];
+		return;
+	}
+
+	const dataColumnOffset = Number(props.sortAllowed) + Number(props.showSelect !== 'none');
+	const metrics = getTableGridMetrics(headerRow, dataColumnOffset, props.tableHeaders.length);
+	if (!metrics) return;
+
+	measuredGridTemplateColumns.value = metrics.templateColumns;
+	measuredColumnWidths.value = metrics.columnWidths;
+}
 
 function addField(field: string): void {
 	if (!field || props.fields.includes(field)) return;
@@ -83,7 +157,8 @@ function clearColumnFilters(): void {
 
 function inlineFilterControlStyle(header: TableHeader, index: number): CSSProperties {
 	const focused = focusedFilter.value === header.value;
-	const width = getInlineFilterControlWidth(header.width, props.columnFilters[header.value] ?? '', focused);
+	const columnWidth = measuredColumnWidths.value[index] ?? header.width;
+	const width = getInlineFilterControlWidth(columnWidth, props.columnFilters[header.value] ?? '', focused);
 	const alignToEnd = shouldExpandInlineFilterLeft(index, props.tableHeaders.length);
 
 	return {
@@ -166,6 +241,7 @@ function displayValue(item: Item, field: string): unknown {
 					</span>
 				</label>
 
+				<div class="inline-column-filters__fill" aria-hidden="true" />
 				<div class="inline-column-filters__actions">
 					<button
 						v-if="activeFilterCount"
@@ -379,6 +455,7 @@ function displayValue(item: Item, field: string): unknown {
 }
 
 .inline-column-filters__spacer,
+.inline-column-filters__fill,
 .inline-column-filters__actions,
 .inline-column-filter {
 	block-size: 68px;
