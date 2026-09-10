@@ -1,6 +1,6 @@
 import type { ColumnFilterValues, ColumnPlan, FilterNode, SearchLeaf } from '../types';
 
-const TEXT_TYPES = new Set(['csv', 'hash', 'string', 'text', 'unknown', 'uuid']);
+const TEXT_TYPES = new Set(['csv', 'hash', 'string', 'text', 'unknown']);
 const NUMBER_TYPES = new Set(['bigInteger', 'decimal', 'float', 'integer']);
 const DATE_TYPES = new Set(['date', 'dateTime', 'time', 'timestamp']);
 
@@ -44,8 +44,10 @@ export function buildLeafCondition(leaf: SearchLeaf, term: string): FilterNode |
 	} else if (leaf.type === 'boolean') {
 		const value = parseBoolean(term);
 		if (value !== null) operation = { _eq: value };
+	} else if (leaf.type === 'uuid') {
+		if (isUuid(term)) operation = { _eq: term };
 	} else if (DATE_TYPES.has(leaf.type)) {
-		operation = { _eq: term } as FilterNode;
+		if (isDateValue(leaf.type, term)) operation = { _eq: term } as FilterNode;
 	}
 
 	return operation ? nestPath(leaf.path, operation) : null;
@@ -80,6 +82,16 @@ function parseBoolean(term: string): boolean | null {
 	if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
 	if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
 	return null;
+}
+
+function isUuid(value: string): boolean {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isDateValue(type: string, value: string): boolean {
+	if (type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(value);
+	if (type === 'time') return /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value);
+	return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(value);
 }
 
 function uniqueLeaves(leaves: SearchLeaf[]): SearchLeaf[] {

@@ -63,6 +63,11 @@ describe('filter generation', () => {
 			published_on: { _eq: '2026-09-09' },
 		});
 		expect(buildLeafCondition({ path: 'views', type: 'integer' }, 'many')).toBeNull();
+		expect(buildLeafCondition({ path: 'owner', type: 'uuid' }, 'not-a-uuid')).toBeNull();
+		expect(buildLeafCondition({ path: 'owner', type: 'uuid' }, '123e4567-e89b-42d3-a456-426614174000')).toEqual({
+			owner: { _eq: '123e4567-e89b-42d3-a456-426614174000' },
+		});
+		expect(buildLeafCondition({ path: 'created_at', type: 'dateTime' }, 'not-a-date')).toBeNull();
 	});
 
 	it('omits blank and unsupported conditions', () => {
