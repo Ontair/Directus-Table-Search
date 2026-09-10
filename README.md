@@ -71,7 +71,7 @@ npm run build
 Run the real-API suite against a disposable or local development Directus instance:
 
 ```sh
-DIRECTUS_ADMIN_EMAIL=admin@example.test \
+DIRECTUS_ADMIN_EMAIL=admin@example.com \
 DIRECTUS_ADMIN_PASSWORD=local-development-password \
 npm run test:integration
 ```
