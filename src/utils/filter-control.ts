@@ -22,9 +22,9 @@ export function getColumnFilterKind(plan: ColumnPlan): ColumnFilterControlKind {
 export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): ColumnFilterControlConfig {
 	if (kind === 'number') {
 		return {
-			helpText: 'Numeric fields are matched by exact value.',
+			helpText: "Enter the complete numeric value; partial matching isn't supported.",
 			inputType: 'text',
-			placeholder: 'Exact number…',
+			placeholder: 'Full number only…',
 		};
 	}
 

@@ -42,9 +42,9 @@ describe('column filter controls', () => {
 
 	it('describes exact-match controls directly in their placeholder and help text', () => {
 		expect(getColumnFilterControlConfig('number')).toEqual({
-			helpText: 'Numeric fields are matched by exact value.',
+			helpText: "Enter the complete numeric value; partial matching isn't supported.",
 			inputType: 'text',
-			placeholder: 'Exact number…',
+			placeholder: 'Full number only…',
 		});
 		expect(getColumnFilterControlConfig('boolean').placeholder).toBe('Any');
 		expect(getColumnFilterControlConfig('date')).toMatchObject({ inputType: 'date', placeholder: 'Exact date…' });
