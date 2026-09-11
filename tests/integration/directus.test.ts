@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createDirectusMetadataAccess } from '../../src/services/directus-metadata';
 import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildDisplayQuery } from '../../src/utils/display-query';
-import { buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
+import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
 import { getValueAtPath } from '../../src/utils/object';
 
 const baseUrl = process.env.DIRECTUS_URL ?? 'http://127.0.0.1:8055';
@@ -102,6 +102,37 @@ describe('Directus filter integration', () => {
 		expect(response.data).toEqual([
 			expect.objectContaining({ slug: 'article-01', status: 'published', title: 'Visible Search Guide' }),
 		]);
+	});
+
+	it('executes exact column filters for every supported scalar family', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ field: 'rank', term: '1', slug: 'article-01' },
+			{ field: 'reference_number', term: '9007199254740993', slug: 'article-01' },
+			{ field: 'amount', term: '1234.56789', slug: 'article-01' },
+			{ field: 'ratio', term: '1.25', slug: 'article-01' },
+			{ field: 'active', term: 'true', slug: 'article-01' },
+			{ field: 'active', term: 'false', slug: 'article-02' },
+			{ field: 'published_on', term: '2026-09-10', slug: 'article-01' },
+			{ field: 'starts_at', term: '2026-09-10T12:34:00', slug: 'article-01' },
+			{ field: 'opens_at', term: '12:34:00', slug: 'article-01' },
+			{ field: 'external_id', term: '123e4567-e89b-42d3-a456-426614174000', slug: 'article-01' },
+		];
+
+		for (const testCase of cases) {
+			const plans = buildColumnPlans(collections.articles, [testCase.field], metadata);
+			const filter = buildColumnFilters(plans, { [testCase.field]: testCase.term });
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter,
+			});
+
+			expect(response.status, `${testCase.field}: ${JSON.stringify(response.body)}`).toBe(200);
+			expect(
+				response.data.map((item) => item.slug),
+				testCase.field,
+			).toContain(testCase.slug);
+		}
 	});
 
 	it('keeps server pagination and sorting stable', async () => {
@@ -255,11 +286,31 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 			stringField('status'),
 			integerField('rank'),
 			integerField('sort'),
+			scalarField('reference_number', 'bigInteger'),
+			scalarField('amount', 'decimal', { numericPrecision: 20, numericScale: 5 }),
+			scalarField('ratio', 'float'),
+			scalarField('active', 'boolean'),
+			scalarField('published_on', 'date'),
+			scalarField('starts_at', 'dateTime'),
+			scalarField('opens_at', 'time'),
+			scalarField('external_id', 'uuid'),
 			relationField('author', 'integer', 'related-values', { template: '{{ name }} ({{ code }})' }),
 			relationField('editor', 'uuid', 'user'),
 		],
 		sortField: 'sort',
 	});
+	for (const field of [
+		scalarField('reference_number', 'bigInteger'),
+		scalarField('amount', 'decimal', { numericPrecision: 20, numericScale: 5 }),
+		scalarField('ratio', 'float'),
+		scalarField('active', 'boolean'),
+		scalarField('published_on', 'date'),
+		scalarField('starts_at', 'dateTime'),
+		scalarField('opens_at', 'time'),
+		scalarField('external_id', 'uuid'),
+	]) {
+		await ensureField(client, collections.articles, field);
+	}
 	await ensureCollection(client, collections.comments, {
 		displayTemplate: '{{ body }}',
 		fields: [stringField('slug'), { ...stringField('body'), type: 'text' }, relationField('article_id', 'integer')],
@@ -297,10 +348,18 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 	for (let rank = 1; rank <= 30; rank += 1) {
 		const slug = `article-${String(rank).padStart(2, '0')}`;
 		const article = await ensureItem(client, collections.articles, slug, {
+			active: rank % 2 === 1,
+			amount: rank === 1 ? '1234.56789' : String(rank),
 			author: rank === 1 ? ada.id : grace.id,
 			editor: rank === 1 ? restrictedUser.id : null,
+			external_id: rank === 1 ? '123e4567-e89b-42d3-a456-426614174000' : null,
+			opens_at: rank === 1 ? '12:34:00' : null,
+			published_on: rank === 1 ? '2026-09-10' : null,
 			rank,
+			ratio: rank === 1 ? 1.25 : rank,
+			reference_number: rank === 1 ? '9007199254740993' : String(9_007_199_254_740_000n + BigInt(rank)),
 			sort: rank,
+			starts_at: rank === 1 ? '2026-09-10T12:34:00' : null,
 			status: rank === 2 || rank % 3 === 0 ? 'draft' : 'published',
 			title: rank === 1 ? 'Visible Search Guide' : rank === 2 ? 'Guide Draft' : `Article ${rank}`,
 		});
@@ -367,6 +426,22 @@ async function ensureAliasField(
 		method: 'POST',
 	});
 	assertSuccess(created, `create alias ${collection}.${field}`);
+}
+
+async function ensureField(
+	client: DirectusClient,
+	collection: string,
+	definition: Record<string, unknown>,
+): Promise<void> {
+	const field = definition.field;
+	if (typeof field !== 'string') throw new Error('Integration field definition must have a name');
+
+	const current = await client.request(`/fields/${collection}/${field}`);
+	if (current.status === 200) return;
+	assertSuccess(
+		await client.request(`/fields/${collection}`, { body: definition, method: 'POST' }),
+		`create field ${collection}.${field}`,
+	);
 }
 
 async function ensureRelation(
@@ -488,7 +563,14 @@ async function ensureItem(
 	data: Record<string, unknown>,
 ): Promise<Record<string, any>> {
 	const current = await client.getItems(collection, { fields: ['*'], filter: { slug: { _eq: slug } }, limit: 1 });
-	if (current.data[0]) return current.data[0];
+	if (current.data[0]) {
+		const updated = await client.request<Record<string, any>>(`/items/${collection}/${current.data[0].id}`, {
+			body: data,
+			method: 'PATCH',
+		});
+		assertSuccess(updated, `update item ${collection}/${slug}`);
+		return updated.data;
+	}
 	const created = await client.request<Record<string, any>>(`/items/${collection}`, {
 		body: { ...data, slug },
 		method: 'POST',
@@ -584,6 +666,23 @@ function stringField(field: string): Record<string, unknown> {
 
 function integerField(field: string): Record<string, unknown> {
 	return { field, meta: { interface: 'input' }, schema: { is_nullable: false }, type: 'integer' };
+}
+
+function scalarField(
+	field: string,
+	type: 'bigInteger' | 'boolean' | 'date' | 'dateTime' | 'decimal' | 'float' | 'time' | 'uuid',
+	options: { numericPrecision?: number; numericScale?: number } = {},
+): Record<string, unknown> {
+	return {
+		field,
+		meta: { interface: type === 'boolean' ? 'boolean' : type === 'date' || type === 'dateTime' ? 'datetime' : 'input' },
+		schema: {
+			is_nullable: true,
+			numeric_precision: options.numericPrecision,
+			numeric_scale: options.numericScale,
+		},
+		type,
+	};
 }
 
 function relationField(

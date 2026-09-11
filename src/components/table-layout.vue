@@ -13,6 +13,7 @@ import {
 	watch,
 } from 'vue';
 
+import ColumnFilterControl from './column-filter-control.vue';
 import type { LayoutComponentProps, TableHeader, TableSort } from '../types';
 import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
@@ -196,15 +197,12 @@ function displayValue(item: Item, field: string): unknown {
 			<div class="column-filter-panel__fields">
 				<label v-for="header in tableHeaders" :key="header.value" class="column-filter">
 					<span class="column-filter__label" :title="header.description || header.text">{{ header.text }}</span>
-					<v-input
+					<column-filter-control
 						:model-value="columnFilters[header.value] || ''"
-						:disabled="!searchableFields.includes(header.value)"
-						:placeholder="searchableFields.includes(header.value) ? 'Filter…' : 'Not searchable'"
-						small
+						:kind="columnFilterKinds[header.value] || 'unsupported'"
+						:disabled="columnFilterKinds[header.value] === 'unsupported'"
 						@update:model-value="updateColumnFilter(header.value, $event)"
-					>
-						<template #prepend><v-icon name="search" x-small /></template>
-					</v-input>
+					/>
 				</label>
 			</div>
 		</section>
@@ -229,15 +227,12 @@ function displayValue(item: Item, field: string): unknown {
 						@focusin="focusedFilter = header.value"
 						@focusout="focusedFilter = null"
 					>
-						<v-input
+						<column-filter-control
 							:model-value="columnFilters[header.value] || ''"
-							:disabled="!searchableFields.includes(header.value)"
-							:placeholder="searchableFields.includes(header.value) ? 'Filter…' : 'Not searchable'"
-							small
+							:kind="columnFilterKinds[header.value] || 'unsupported'"
+							:disabled="columnFilterKinds[header.value] === 'unsupported'"
 							@update:model-value="updateColumnFilter(header.value, $event)"
-						>
-							<template #prepend><v-icon name="search" x-small /></template>
-						</v-input>
+						/>
 					</span>
 				</label>
 
@@ -493,7 +488,8 @@ function displayValue(item: Item, field: string): unknown {
 	filter: drop-shadow(0 4px 10px rgb(0 0 0 / 18%));
 }
 
-.inline-column-filter__control :deep(.v-input) {
+.inline-column-filter__control :deep(.v-input),
+.inline-column-filter__control :deep(.v-select) {
 	inline-size: 100%;
 }
 

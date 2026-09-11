@@ -10,6 +10,10 @@ export type TableSpacing = 'compact' | 'cozy' | 'comfortable';
 
 export type ColumnFilterMode = 'inline' | 'panel';
 
+export type SearchValueKind = 'boolean' | 'date' | 'dateTime' | 'number' | 'text' | 'time' | 'unsupported' | 'uuid';
+
+export type ColumnFilterControlKind = SearchValueKind | 'mixed';
+
 export interface LayoutOptions {
 	align?: Record<string, ColumnAlignment>;
 	columnFilterMode?: ColumnFilterMode;
@@ -75,6 +79,7 @@ export interface LayoutComponentProps {
 	changeManualSort: (data: { item: number | string; to: number | string }) => Promise<void>;
 	collection: string;
 	columnFilterMode: ColumnFilterMode;
+	columnFilterKinds: Record<string, ColumnFilterControlKind>;
 	columnFilters: ColumnFilterValues;
 	error?: unknown;
 	fields: string[];
@@ -90,7 +95,6 @@ export interface LayoutComponentProps {
 	primaryKeyField?: Field | null;
 	resetPresetAndRefresh: () => Promise<void>;
 	search?: string | null;
-	searchableFields: string[];
 	selectAll: () => void;
 	selection: (number | string)[];
 	showColumnFilters: boolean;

@@ -19,6 +19,7 @@ import type {
 import { buildColumnPlans } from './utils/column-plan';
 import { getDefaultDisplay } from './utils/default-display';
 import { buildDisplayQuery } from './utils/display-query';
+import { buildColumnFilterKinds } from './utils/filter-control';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
@@ -136,11 +137,9 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const queryFields = computed(() => displayQuery.value.fields);
 		const queryAlias = computed(() => displayQuery.value.alias);
 		const itemValuePaths = computed(() => displayQuery.value.valuePaths);
+		const columnFilterKinds = computed(() => buildColumnFilterKinds(columnPlans.value));
 		const globalSearchFilter = computed(() => buildGlobalSearchFilter(columnPlans.value, search.value));
 		const perColumnFilter = computed(() => buildColumnFilters(columnPlans.value, columnFilters.value));
-		const searchableFields = computed(() =>
-			columnPlans.value.filter(({ searchLeaves }) => searchLeaves.length > 0).map(({ key }) => key),
-		);
 		const effectiveFilter = computed<Filter | null>(
 			() =>
 				combineFilters(
@@ -259,6 +258,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			activeFields,
 			changeManualSort,
 			columnFilterMode,
+			columnFilterKinds,
 			columnFilters,
 			error,
 			fields,
@@ -276,7 +276,6 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			primaryKeyField,
 			refresh,
 			resetPresetAndRefresh,
-			searchableFields,
 			selectAll,
 			showColumnFilters,
 			showingCount,

@@ -1,8 +1,5 @@
 import type { ColumnFilterValues, ColumnPlan, FilterNode, SearchLeaf } from '../types';
-
-const TEXT_TYPES = new Set(['csv', 'hash', 'string', 'text', 'unknown']);
-const NUMBER_TYPES = new Set(['bigInteger', 'decimal', 'float', 'integer']);
-const DATE_TYPES = new Set(['date', 'dateTime', 'time', 'timestamp']);
+import { getSearchValueKind } from './search-type';
 
 export function buildGlobalSearchFilter(plans: ColumnPlan[], rawTerm: string | null | undefined): FilterNode | null {
 	const term = rawTerm?.trim();
@@ -35,22 +32,41 @@ export function combineFilters(...filters: Array<FilterNode | null | undefined>)
 
 export function buildLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
 	let operation: FilterNode | null = null;
+	const kind = getSearchValueKind(leaf.type);
 
-	if (TEXT_TYPES.has(leaf.type)) {
+	if (kind === 'text') {
 		operation = { _icontains: term } as FilterNode;
-	} else if (NUMBER_TYPES.has(leaf.type)) {
-		const number = Number(term);
-		if (Number.isFinite(number)) operation = { _eq: number } as FilterNode;
-	} else if (leaf.type === 'boolean') {
+	} else if (kind === 'number') {
+		const number = parseNumber(leaf.type, term);
+		if (number !== null) operation = { _eq: number } as FilterNode;
+	} else if (kind === 'boolean') {
 		const value = parseBoolean(term);
 		if (value !== null) operation = { _eq: value };
-	} else if (leaf.type === 'uuid') {
+	} else if (kind === 'uuid') {
 		if (isUuid(term)) operation = { _eq: term };
-	} else if (DATE_TYPES.has(leaf.type)) {
+	} else if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
 		if (isDateValue(leaf.type, term)) operation = { _eq: term } as FilterNode;
 	}
 
 	return operation ? nestPath(leaf.path, operation) : null;
+}
+
+function parseNumber(type: string, term: string): number | string | null {
+	if (type === 'bigInteger') return isInteger(term) ? term : null;
+	if (type === 'decimal') return isDecimal(term) ? term : null;
+
+	const value = Number(term);
+	if (!Number.isFinite(value)) return null;
+	if (type === 'integer' && (!Number.isInteger(value) || !Number.isSafeInteger(value))) return null;
+	return value;
+}
+
+function isInteger(value: string): boolean {
+	return /^[+-]?\d+$/.test(value);
+}
+
+function isDecimal(value: string): boolean {
+	return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value);
 }
 
 export function nestPath(path: string, operation: FilterNode): FilterNode {
