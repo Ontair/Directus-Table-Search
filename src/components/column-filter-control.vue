@@ -24,42 +24,37 @@ const config = computed(() => getColumnFilterControlConfig(props.kind));
 const booleanDisplayValue = computed(
 	() => booleanItems.find(({ value }) => value === props.modelValue)?.text ?? config.value.placeholder,
 );
+
+function updateBooleanValue(event: Event): void {
+	emit('update:modelValue', (event.target as HTMLSelectElement).value);
+}
 </script>
 
 <template>
 	<div class="column-filter-control" :title="config.helpText">
-		<v-select
-			v-if="kind === 'boolean'"
-			:model-value="modelValue"
-			:items="booleanItems"
-			:disabled="disabled"
-			:placeholder="config.placeholder"
-			@update:model-value="emit('update:modelValue', $event)"
-		>
-			<template #preview="{ toggle, active }">
-				<!-- Prevent the enclosing column label from forwarding the click twice and immediately closing the menu. -->
-				<div
-					class="boolean-filter-activator"
-					@click.capture.stop.prevent="toggle"
-					@keydown.enter.capture.stop.prevent="toggle"
-					@keydown.space.capture.stop.prevent="toggle"
-				>
-					<v-input
-						:model-value="booleanDisplayValue"
-						:disabled="disabled"
-						:active="active"
-						:placeholder="config.placeholder"
-						readonly
-						clickable
-						full-width
-						small
-					>
-						<template #prepend><v-icon name="rule" x-small /></template>
-						<template #append><v-icon name="expand_more" :class="{ active }" /></template>
-					</v-input>
-				</div>
-			</template>
-		</v-select>
+		<div v-if="kind === 'boolean'" class="boolean-filter">
+			<v-input
+				:model-value="booleanDisplayValue"
+				:disabled="disabled"
+				:placeholder="config.placeholder"
+				readonly
+				clickable
+				full-width
+				small
+			>
+				<template #prepend><v-icon name="rule" x-small /></template>
+				<template #append><v-icon name="expand_more" /></template>
+			</v-input>
+			<select
+				class="boolean-filter__native-select"
+				:value="modelValue"
+				:disabled="disabled"
+				aria-label="Boolean filter"
+				@change="updateBooleanValue"
+			>
+				<option v-for="item in booleanItems" :key="item.value" :value="item.value">{{ item.text }}</option>
+			</select>
+		</div>
 		<v-input
 			v-else
 			:model-value="modelValue"
@@ -76,9 +71,30 @@ const booleanDisplayValue = computed(
 
 <style scoped>
 .column-filter-control,
-.boolean-filter-activator,
+.boolean-filter,
 .column-filter-control :deep(.v-input),
 .column-filter-control :deep(.v-select) {
 	inline-size: 100%;
+}
+
+.boolean-filter {
+	position: relative;
+}
+
+.boolean-filter__native-select {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	cursor: pointer;
+	opacity: 0;
+}
+
+.boolean-filter__native-select:disabled {
+	cursor: not-allowed;
+}
+
+.boolean-filter:focus-within :deep(.v-input) {
+	--v-input-color: var(--theme--primary);
 }
 </style>

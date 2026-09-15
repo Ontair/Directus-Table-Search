@@ -153,6 +153,7 @@ function updateColumnFilter(field: string, value: unknown): void {
 }
 
 function clearColumnFilters(): void {
+	focusedFilter.value = null;
 	emit('update:columnFilters', {});
 }
 
