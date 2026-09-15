@@ -1,6 +1,6 @@
 import type { SearchValueKind } from '../types';
 
-const TEXT_TYPES = new Set(['csv', 'hash', 'string', 'text', 'unknown']);
+const TEXT_TYPES = new Set(['csv', 'string', 'text']);
 const NUMBER_TYPES = new Set(['bigInteger', 'decimal', 'float', 'integer']);
 
 export function getSearchValueKind(type: string): SearchValueKind {

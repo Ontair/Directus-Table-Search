@@ -13,9 +13,12 @@ const NON_SEARCHABLE_TYPES = new Set([
 	'geometry.MultiPolygon',
 	'geometry.Point',
 	'geometry.Polygon',
+	'hash',
 	'json',
 	'presentation',
+	'unknown',
 ]);
+const NON_SEARCHABLE_SPECIALS = new Set(['conceal', 'hash', 'no-data']);
 
 export function buildColumnPlans(collection: string, visibleFields: string[], metadata: MetadataAccess): ColumnPlan[] {
 	return visibleFields.map((key) => buildColumnPlan(collection, key, metadata)).filter(isColumnPlan);
@@ -74,7 +77,10 @@ function getDirectRelatedCollection(collection: string, field: string, metadata:
 }
 
 function isSearchable(field: Field): boolean {
-	return !NON_SEARCHABLE_TYPES.has(field.type) && !field.meta?.special?.includes('no-data');
+	return (
+		!NON_SEARCHABLE_TYPES.has(field.type) &&
+		!(field.meta?.special ?? []).some((special) => NON_SEARCHABLE_SPECIALS.has(special))
+	);
 }
 
 function isColumnPlan(plan: ColumnPlan | null): plan is ColumnPlan {

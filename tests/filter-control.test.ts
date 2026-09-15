@@ -16,6 +16,7 @@ describe('column filter controls', () => {
 		['timestamp', 'dateTime'],
 		['time', 'time'],
 		['uuid', 'uuid'],
+		['csv', 'text'],
 	] as const)('maps %s leaves to a %s control', (type, expected) => {
 		expect(getColumnFilterKind(plan('value', type))).toBe(expected);
 	});
@@ -34,6 +35,8 @@ describe('column filter controls', () => {
 
 	it('marks a column without supported leaves as unavailable', () => {
 		expect(getColumnFilterKind({ key: 'payload', searchLeaves: [] })).toBe('unsupported');
+		expect(getColumnFilterKind(plan('password', 'hash'))).toBe('unsupported');
+		expect(getColumnFilterKind(plan('blob', 'unknown'))).toBe('unsupported');
 		expect(buildColumnFilterKinds([plan('title', 'string'), plan('inn', 'bigInteger')])).toEqual({
 			inn: 'number',
 			title: 'text',

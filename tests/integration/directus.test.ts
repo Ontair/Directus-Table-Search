@@ -104,6 +104,30 @@ describe('Directus filter integration', () => {
 		]);
 	});
 
+	it('excludes scalar fields whose Directus type rejects text search operators', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['title', 'password_hash'], metadata);
+
+		expect(plans).toEqual([
+			{ key: 'title', searchLeaves: [{ path: 'title', type: 'string' }] },
+			{ key: 'password_hash', searchLeaves: [] },
+		]);
+
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug', 'title'],
+			filter: buildGlobalSearchFilter(plans, 'Guide'),
+		});
+
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data.map((item) => item.slug)).toEqual(['article-01', 'article-02']);
+
+		const unsupportedResponse = await admin.getItems(collections.articles, {
+			fields: ['id'],
+			filter: { password_hash: { _icontains: 'Guide' } },
+		});
+		expect(unsupportedResponse.status).toBe(400);
+	});
+
 	it('executes exact column filters for every supported scalar family', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [
@@ -294,6 +318,7 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 			scalarField('starts_at', 'dateTime'),
 			scalarField('opens_at', 'time'),
 			scalarField('external_id', 'uuid'),
+			scalarField('password_hash', 'hash'),
 			relationField('author', 'integer', 'related-values', { template: '{{ name }} ({{ code }})' }),
 			relationField('editor', 'uuid', 'user'),
 		],
@@ -308,6 +333,7 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 		scalarField('starts_at', 'dateTime'),
 		scalarField('opens_at', 'time'),
 		scalarField('external_id', 'uuid'),
+		scalarField('password_hash', 'hash'),
 	]) {
 		await ensureField(client, collections.articles, field);
 	}
@@ -437,7 +463,18 @@ async function ensureField(
 	if (typeof field !== 'string') throw new Error('Integration field definition must have a name');
 
 	const current = await client.request(`/fields/${collection}/${field}`);
-	if (current.status === 200) return;
+	if (current.status === 200) {
+		if (definition.type === 'hash') {
+			assertSuccess(
+				await client.request(`/fields/${collection}/${field}`, {
+					body: { meta: definition.meta },
+					method: 'PATCH',
+				}),
+				`configure field ${collection}.${field}`,
+			);
+		}
+		return;
+	}
 	assertSuccess(
 		await client.request(`/fields/${collection}`, { body: definition, method: 'POST' }),
 		`create field ${collection}.${field}`,
@@ -670,12 +707,22 @@ function integerField(field: string): Record<string, unknown> {
 
 function scalarField(
 	field: string,
-	type: 'bigInteger' | 'boolean' | 'date' | 'dateTime' | 'decimal' | 'float' | 'time' | 'uuid',
+	type: 'bigInteger' | 'boolean' | 'date' | 'dateTime' | 'decimal' | 'float' | 'hash' | 'time' | 'uuid',
 	options: { numericPrecision?: number; numericScale?: number } = {},
 ): Record<string, unknown> {
 	return {
 		field,
-		meta: { interface: type === 'boolean' ? 'boolean' : type === 'date' || type === 'dateTime' ? 'datetime' : 'input' },
+		meta: {
+			interface:
+				type === 'boolean'
+					? 'boolean'
+					: type === 'date' || type === 'dateTime'
+						? 'datetime'
+						: type === 'hash'
+							? 'input-hash'
+							: 'input',
+			special: type === 'hash' ? ['hash', 'conceal'] : null,
+		},
 		schema: {
 			is_nullable: true,
 			numeric_precision: options.numericPrecision,

@@ -13,6 +13,10 @@ describe('search value kinds', () => {
 		expect(getSearchValueKind('timestamp')).toBe('dateTime');
 		expect(getSearchValueKind('time')).toBe('time');
 		expect(getSearchValueKind('uuid')).toBe('uuid');
+		expect(getSearchValueKind('csv')).toBe('text');
 		expect(getSearchValueKind('json')).toBe('unsupported');
+		expect(getSearchValueKind('hash')).toBe('unsupported');
+		expect(getSearchValueKind('binary')).toBe('unsupported');
+		expect(getSearchValueKind('unknown')).toBe('unsupported');
 	});
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildColumnPlans } from '../src/utils/column-plan';
-import { createSchema } from './fixtures/schema';
+import { createSchema, field } from './fixtures/schema';
 
 describe('buildColumnPlans', () => {
 	it('derives searchable paths from rendered relation displays', () => {
@@ -63,5 +63,26 @@ describe('buildColumnPlans', () => {
 			key: 'author.first_name',
 			searchLeaves: [{ path: 'author.first_name', type: 'string' }],
 		});
+	});
+
+	it('does not generate filters for scalar types rejected by Directus operators', () => {
+		const baseMetadata = createSchema();
+		const metadata = {
+			...baseMetadata,
+			getField: (collection: string, fieldName: string) => {
+				if (collection === 'articles' && fieldName === 'password_hash') {
+					return field('articles', fieldName, 'string', { special: ['hash', 'conceal'] });
+				}
+				if (collection === 'articles' && fieldName === 'binary_payload') {
+					return field('articles', fieldName, 'unknown');
+				}
+				return baseMetadata.getField(collection, fieldName);
+			},
+		};
+
+		expect(buildColumnPlans('articles', ['password_hash', 'binary_payload'], metadata)).toEqual([
+			{ key: 'password_hash', searchLeaves: [] },
+			{ key: 'binary_payload', searchLeaves: [] },
+		]);
 	});
 });
