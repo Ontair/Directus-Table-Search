@@ -15,18 +15,30 @@ describe('ColumnFilterControl', () => {
 			global: {
 				stubs: {
 					'v-icon': true,
-					'v-input': true,
+					'v-input': {
+						props: ['modelValue'],
+						template: '<div class="input-preview">{{ modelValue }}</div>',
+					},
+					'v-list': { template: '<div><slot /></div>' },
+					'v-list-item': {
+						emits: ['click'],
+						template: '<button type="button" @click="$emit(\'click\')"><slot /></button>',
+					},
+					'v-list-item-content': { template: '<span><slot /></span>' },
+					'v-menu': {
+						methods: { toggle() {} },
+						template: '<div><slot name="activator" :toggle="toggle" :active="false" /><slot /></div>',
+					},
 				},
 			},
 		});
-		const select = wrapper.get<HTMLSelectElement>('select');
 
-		expect(select.element.value).toBe('false');
+		expect(wrapper.get('.input-preview').text()).toBe('False');
 
 		await wrapper.setProps({ modelValue: '' });
-		expect(select.element.value).toBe('');
+		expect(wrapper.get('.input-preview').text()).toBe('Any');
 
-		await select.setValue('true');
+		await wrapper.findAll('button')[1]!.trigger('click');
 		expect(wrapper.emitted('update:modelValue')).toEqual([['true']]);
 	});
 });
