@@ -174,6 +174,13 @@ function updateSort(value: TableSort | null): void {
 	props.onSortChange(value);
 }
 
+function updatePageSize(value: unknown): void {
+	const nextLimit = Number(value);
+	if (!pageSizes.includes(nextLimit) || nextLimit === props.limit) return;
+
+	emit('update:limit', nextLimit);
+}
+
 function displayValue(item: Item, field: string): unknown {
 	return getValueAtPath(item as Record<string, unknown>, props.itemValuePaths[field] ?? field);
 }
@@ -353,21 +360,23 @@ function displayValue(item: Item, field: string): unknown {
 
 			<template #footer>
 				<div class="footer">
-					<v-pagination
-						v-if="totalPages > 1"
-						:length="totalPages"
-						:total-visible="7"
-						show-first-last
-						:model-value="page"
-						@update:model-value="toPage"
-					/>
-					<div v-if="items.length >= 25 || limit < 25" class="per-page">
+					<div class="pagination">
+						<v-pagination
+							v-if="totalPages > 1"
+							:length="totalPages"
+							:total-visible="7"
+							show-first-last
+							:model-value="page"
+							@update:model-value="toPage"
+						/>
+					</div>
+					<div v-if="loading === false" class="per-page">
 						<span>Per page</span>
 						<v-select
 							:model-value="String(limit)"
 							:items="pageSizes.map((value) => ({ text: String(value), value: String(value) }))"
 							inline
-							@update:model-value="emit('update:limit', Number($event))"
+							@update:model-value="updatePageSize"
 						/>
 					</div>
 				</div>
@@ -545,11 +554,25 @@ function displayValue(item: Item, field: string): unknown {
 	padding: 32px var(--content-padding);
 }
 
+.pagination {
+	display: inline-block;
+}
+
 .per-page {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	justify-content: flex-end;
+	inline-size: 240px;
 	color: var(--theme--foreground-subdued);
+
+	span {
+		inline-size: auto;
+		margin-inline-end: 4px;
+	}
+
+	.v-select {
+		color: var(--theme--foreground);
+	}
 }
 
 .add-field.active {

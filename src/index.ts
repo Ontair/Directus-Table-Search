@@ -92,7 +92,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const limit = computed<number>({
 			get: () => layoutQuery.value?.limit ?? 25,
 			set: (value) => {
-				layoutQuery.value = { ...layoutQuery.value, limit: value };
+				layoutQuery.value = { ...layoutQuery.value, limit: value, page: 1 };
 			},
 		});
 
