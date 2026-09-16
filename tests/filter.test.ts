@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ColumnPlan } from '../src/types';
 import { buildColumnFilters, buildGlobalSearchFilter, buildLeafCondition, combineFilters } from '../src/utils/filter';
+import { encodeTemporalFilterValue } from '../src/utils/temporal-filter';
 
 const plans: ColumnPlan[] = [
 	{
@@ -48,8 +49,8 @@ describe('filter generation', () => {
 			{ key: 'published_on', searchLeaves: [{ path: 'published_on', type: 'date' }] },
 		];
 
-		expect(buildColumnFilters(temporalPlans, { published_on: '1' })).toEqual({
-			'day(published_on)': { _in: [1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
+		expect(buildColumnFilters(temporalPlans, { published_on: encodeTemporalFilterValue({ day: '1' }) })).toEqual({
+			'day(published_on)': { _eq: 1 },
 		});
 		expect(buildGlobalSearchFilter(temporalPlans, '1')).toBeNull();
 	});

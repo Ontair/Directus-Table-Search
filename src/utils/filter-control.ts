@@ -38,9 +38,9 @@ export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): Col
 
 	if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
 		return {
-			helpText: 'The filter is applied while you type. Incomplete date and time segments are supported.',
+			helpText: 'Fill any date or time segment. Every populated segment is applied immediately.',
 			inputType: 'text',
-			placeholder: kind === 'date' ? 'DD.MM.YYYY…' : kind === 'time' ? 'HH:MM:SS…' : 'DD.MM.YYYY HH:MM…',
+			placeholder: kind === 'date' ? 'DD.MM.YYYY' : kind === 'time' ? 'HH:MM:SS' : 'DD.MM.YYYY, HH:MM:SS',
 		};
 	}
 

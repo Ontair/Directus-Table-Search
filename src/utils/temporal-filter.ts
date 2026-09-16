@@ -1,9 +1,9 @@
 import type { FilterNode, SearchLeaf } from '../types';
 
 type TemporalComponent = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
-type TemporalType = 'date' | 'dateTime' | 'time' | 'timestamp';
+export type TemporalFilterType = 'date' | 'dateTime' | 'time' | 'timestamp';
 
-interface TemporalParts {
+export interface TemporalFilterParts {
 	day?: string;
 	hour?: string;
 	minute?: string;
@@ -14,8 +14,12 @@ interface TemporalParts {
 
 interface ParsedTemporalValue {
 	invalid: boolean;
-	parts: TemporalParts;
+	parts: TemporalFilterParts;
+	structured: boolean;
 }
+
+const STRUCTURED_VALUE_PREFIX = '@t:';
+const STRUCTURED_PART_ORDER = ['year', 'month', 'day', 'hour', 'minute', 'second'] as const;
 
 const DATE_COMPONENTS = [
 	{ component: 'day', max: 31, min: 1, width: 2 },
@@ -38,7 +42,9 @@ export function buildPartialTemporalCondition(leaf: SearchLeaf, rawValue: string
 	for (const definition of DATE_COMPONENTS) {
 		const prefix = parsed.parts[definition.component];
 		if (prefix === undefined) continue;
-		const operation = buildDiscretePrefixOperation(prefix, definition.min, definition.max, definition.width);
+		const operation = parsed.structured
+			? buildExactComponentOperation(prefix, definition.min, definition.max, definition.width)
+			: buildDiscretePrefixOperation(prefix, definition.min, definition.max, definition.width);
 		if (!operation) invalid = true;
 		else conditions.push(nestFunctionPath(leaf.path, definition.component, operation));
 	}
@@ -52,7 +58,9 @@ export function buildPartialTemporalCondition(leaf: SearchLeaf, rawValue: string
 	for (const definition of TIME_COMPONENTS) {
 		const prefix = parsed.parts[definition.component];
 		if (prefix === undefined) continue;
-		const operation = buildDiscretePrefixOperation(prefix, definition.min, definition.max, definition.width);
+		const operation = parsed.structured
+			? buildExactComponentOperation(prefix, definition.min, definition.max, definition.width)
+			: buildDiscretePrefixOperation(prefix, definition.min, definition.max, definition.width);
 		if (!operation) invalid = true;
 		else conditions.push(nestFunctionPath(leaf.path, definition.component, operation));
 	}
@@ -62,8 +70,20 @@ export function buildPartialTemporalCondition(leaf: SearchLeaf, rawValue: string
 	return { _and: conditions };
 }
 
-function parseTemporalValue(type: TemporalType, value: string): ParsedTemporalValue {
-	if (!value || !/^[\d./:\-T\s]+$/i.test(value)) return { invalid: true, parts: {} };
+export function encodeTemporalFilterValue(parts: TemporalFilterParts): string {
+	const values = STRUCTURED_PART_ORDER.map((component) => parts[component]?.trim() ?? '');
+	return values.some(Boolean) ? `${STRUCTURED_VALUE_PREFIX}${values.join(',')}` : '';
+}
+
+export function decodeTemporalFilterValue(type: TemporalFilterType, rawValue: string): TemporalFilterParts {
+	const value = rawValue.trim();
+	if (!value) return {};
+	return parseTemporalValue(type, value).parts;
+}
+
+function parseTemporalValue(type: TemporalFilterType, value: string): ParsedTemporalValue {
+	if (value.startsWith(STRUCTURED_VALUE_PREFIX)) return parseStructuredTemporalValue(type, value);
+	if (!value || !/^[\d./:\-T\s]+$/i.test(value)) return { invalid: true, parts: {}, structured: false };
 	if (type === 'time') return parseTimeValue(value);
 
 	const separatorIndex = value.search(/[T\s]/i);
@@ -75,6 +95,7 @@ function parseTemporalValue(type: TemporalType, value: string): ParsedTemporalVa
 		return {
 			invalid: parsedDate.invalid || timeToken !== undefined,
 			parts: parsedDate.parts,
+			structured: false,
 		};
 	}
 
@@ -83,62 +104,87 @@ function parseTemporalValue(type: TemporalType, value: string): ParsedTemporalVa
 	return {
 		invalid: parsedDate.invalid || parsedTime.invalid,
 		parts: { ...parsedDate.parts, ...parsedTime.parts },
+		structured: false,
 	};
 }
 
+function parseStructuredTemporalValue(type: TemporalFilterType, value: string): ParsedTemporalValue {
+	const segments = value.slice(STRUCTURED_VALUE_PREFIX.length).split(',');
+	const parts: TemporalFilterParts = {};
+	let invalid = segments.length > STRUCTURED_PART_ORDER.length;
+
+	for (const [index, component] of STRUCTURED_PART_ORDER.entries()) {
+		const segment = segments[index] ?? '';
+		if (!segment) continue;
+		if (!/^\d+$/.test(segment) || !isComponentAllowed(type, component)) {
+			invalid = true;
+			continue;
+		}
+		parts[component] = segment;
+	}
+
+	return { invalid, parts, structured: true };
+}
+
 function parseDateValue(value: string): ParsedTemporalValue {
-	if (!value) return { invalid: true, parts: {} };
+	if (!value) return { invalid: true, parts: {}, structured: false };
 
 	if (/[./-]/.test(value)) {
 		const segments = value.split(/[./-]/);
 		if (segments.length > 3 || segments.some((segment) => segment && !/^\d+$/.test(segment))) {
-			return { invalid: true, parts: {} };
+			return { invalid: true, parts: {}, structured: false };
 		}
 
 		const isoOrder = value.includes('-') && segments[0]?.length === 4;
 		const [first = '', second = '', third = ''] = segments;
-		const parts: TemporalParts = {};
+		const parts: TemporalFilterParts = {};
 		assignPart(parts, isoOrder ? 'year' : 'day', first);
 		assignPart(parts, 'month', second);
 		assignPart(parts, isoOrder ? 'day' : 'year', third);
-		return { invalid: false, parts };
+		return { invalid: false, parts, structured: false };
 	}
 
-	if (!/^\d+$/.test(value) || value.length > 8) return { invalid: true, parts: {} };
-	const parts: TemporalParts = {};
+	if (!/^\d+$/.test(value) || value.length > 8) return { invalid: true, parts: {}, structured: false };
+	const parts: TemporalFilterParts = {};
 	assignPart(parts, 'day', value.slice(0, 2));
 	assignPart(parts, 'month', value.slice(2, 4));
 	assignPart(parts, 'year', value.slice(4, 8));
-	return { invalid: false, parts };
+	return { invalid: false, parts, structured: false };
 }
 
 function parseTimeValue(value: string): ParsedTemporalValue {
-	if (!value) return { invalid: true, parts: {} };
+	if (!value) return { invalid: true, parts: {}, structured: false };
 
 	if (value.includes(':')) {
 		const segments = value.split(':');
 		if (segments.length > 3 || segments.some((segment) => segment && !/^\d+$/.test(segment))) {
-			return { invalid: true, parts: {} };
+			return { invalid: true, parts: {}, structured: false };
 		}
 
 		const [hour = '', minute = '', second = ''] = segments;
-		const parts: TemporalParts = {};
+		const parts: TemporalFilterParts = {};
 		assignPart(parts, 'hour', hour);
 		assignPart(parts, 'minute', minute);
 		assignPart(parts, 'second', second);
-		return { invalid: false, parts };
+		return { invalid: false, parts, structured: false };
 	}
 
-	if (!/^\d+$/.test(value) || value.length > 6) return { invalid: true, parts: {} };
-	const parts: TemporalParts = {};
+	if (!/^\d+$/.test(value) || value.length > 6) return { invalid: true, parts: {}, structured: false };
+	const parts: TemporalFilterParts = {};
 	assignPart(parts, 'hour', value.slice(0, 2));
 	assignPart(parts, 'minute', value.slice(2, 4));
 	assignPart(parts, 'second', value.slice(4, 6));
-	return { invalid: false, parts };
+	return { invalid: false, parts, structured: false };
 }
 
-function assignPart(parts: TemporalParts, component: TemporalComponent, value: string): void {
+function assignPart(parts: TemporalFilterParts, component: TemporalComponent, value: string): void {
 	if (value) parts[component] = value;
+}
+
+function buildExactComponentOperation(value: string, min: number, max: number, width: number): FilterNode | null {
+	if (!/^\d+$/.test(value) || value.length > width) return null;
+	const numericValue = Number(value);
+	return numericValue >= min && numericValue <= max ? { _eq: numericValue } : null;
 }
 
 function buildDiscretePrefixOperation(prefix: string, min: number, max: number, width: number): FilterNode | null {
@@ -180,6 +226,12 @@ function impossibleTemporalCondition(leaf: SearchLeaf): FilterNode {
 	return nestFunctionPath(leaf.path, functionName, { _eq: leaf.type === 'time' ? -1 : 0 });
 }
 
-function isTemporalType(type: string): type is TemporalType {
+function isTemporalType(type: string): type is TemporalFilterType {
 	return type === 'date' || type === 'dateTime' || type === 'time' || type === 'timestamp';
+}
+
+function isComponentAllowed(type: TemporalFilterType, component: TemporalComponent): boolean {
+	if (type === 'date') return component === 'day' || component === 'month' || component === 'year';
+	if (type === 'time') return component === 'hour' || component === 'minute' || component === 'second';
+	return true;
 }

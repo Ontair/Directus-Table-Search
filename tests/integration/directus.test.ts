@@ -6,6 +6,7 @@ import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildDisplayQuery } from '../../src/utils/display-query';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
 import { getValueAtPath } from '../../src/utils/object';
+import { encodeTemporalFilterValue } from '../../src/utils/temporal-filter';
 
 const baseUrl = process.env.DIRECTUS_URL ?? 'http://127.0.0.1:8055';
 const adminEmail = requiredEnvironment('DIRECTUS_ADMIN_EMAIL');
@@ -160,16 +161,45 @@ describe('Directus filter integration', () => {
 		}
 	});
 
-	it('executes incremental date, datetime, timestamp and time column filters', async () => {
+	it('executes independent date, datetime, timestamp and time segments', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [
-			{ excluded: 'article-02', field: 'published_on', included: 'article-10', term: '1' },
-			{ excluded: 'article-01', field: 'published_on', included: 'article-10', term: '10.1' },
-			{ excluded: 'article-11', field: 'starts_at', included: 'article-10', term: '10.10.2026 1' },
-			{ excluded: 'article-11', field: 'starts_at', included: 'article-10', term: '10.10.2' },
-			{ excluded: 'article-11', field: 'recorded_at', included: 'article-10', term: '10.10.2026 1' },
-			{ excluded: 'article-02', field: 'opens_at', included: 'article-10', term: '1' },
-			{ excluded: 'article-11', field: 'opens_at', included: 'article-10', term: '10:1' },
+			{
+				excluded: 'article-30',
+				field: 'published_on',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ year: '2026' }),
+			},
+			{
+				excluded: 'article-01',
+				field: 'published_on',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ month: '10' }),
+			},
+			{
+				excluded: 'article-11',
+				field: 'published_on',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ day: '10' }),
+			},
+			{
+				excluded: 'article-11',
+				field: 'starts_at',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ hour: '10', year: '2026' }),
+			},
+			{
+				excluded: 'article-11',
+				field: 'recorded_at',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ minute: '10' }),
+			},
+			{
+				excluded: 'article-11',
+				field: 'opens_at',
+				included: 'article-10',
+				term: encodeTemporalFilterValue({ minute: '10' }),
+			},
 		];
 
 		for (const testCase of cases) {
@@ -407,7 +437,8 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 		const day = String(((rank - 1) % 28) + 1).padStart(2, '0');
 		const hour = String(rank % 24).padStart(2, '0');
 		const minute = String(rank % 60).padStart(2, '0');
-		const date = `2026-${month}-${day}`;
+		const year = rank === 30 ? '2025' : '2026';
+		const date = `${year}-${month}-${day}`;
 		const time = `${hour}:${minute}:00`;
 		const article = await ensureItem(client, collections.articles, slug, {
 			active: rank % 2 === 1,

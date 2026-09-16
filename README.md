@@ -8,7 +8,7 @@ A schema-independent Directus layout extension for searching and filtering the v
 - Relational columns are searched through the fields required by their configured Directus display.
 - M2O, O2M, M2M, nested fields, and system-user displays use Directus relation metadata rather than schema-specific names.
 - Each visible column has an independent filter. Display fields inside one relational column are combined with OR; different columns are combined with AND.
-- Date, datetime, timestamp, and time column filters narrow results from the first typed segment and accept localized `DD.MM.YYYY HH:MM:SS` prefixes as well as complete ISO values.
+- Date, datetime, timestamp, and time column filters expose independent `DD.MM.YYYY` and `HH:MM:SS` segments. Users can start with any component, and every populated component is applied immediately.
 - Column filters can use a responsive panel or a column-aligned row. Aligned filters follow resized column widths and expand over adjacent cells while focused so long values remain easy to edit without changing table geometry.
 - Existing user and system filters stay active and are combined with the generated filters.
 - Read permissions are checked for every field and relation hop before a query or filter path is generated.
@@ -42,7 +42,7 @@ The extension converts the Data Studio search term into a Directus filter:
 
 - text-like fields use `_icontains`;
 - numeric and boolean fields participate when the term can be converted safely;
-- date/time fields use exact matching in global search, while their column filters use Directus date-part functions for incremental matching;
+- date/time fields use exact matching in global search, while their column filters use Directus date-part functions so independently populated components can be combined safely;
 - unsupported values such as JSON, binary, geometry, and presentation-only aliases are not included.
 
 For example, with visible `title` and relational `author` columns, where `author` renders `first_name` and `last_name`, a search for `Ada` becomes conceptually:
@@ -92,4 +92,4 @@ The domain logic under `src/utils/` is framework-independent and covered by unit
 
 - Dynamic M2A paths are skipped because a single visible M2A column can target collections with incompatible field sets and filter scopes.
 - A custom display that does not declare its required `fields` can only be searched through the visible field value itself.
-- Global date/time search remains exact. Incremental date/time matching is intentionally scoped to column filters, where the input format makes each component unambiguous.
+- Global date/time search remains exact. Component-based date/time matching is intentionally scoped to column filters, where every segment has an unambiguous meaning.

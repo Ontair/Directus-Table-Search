@@ -1,8 +1,51 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPartialTemporalCondition } from '../src/utils/temporal-filter';
+import {
+	buildPartialTemporalCondition,
+	decodeTemporalFilterValue,
+	encodeTemporalFilterValue,
+} from '../src/utils/temporal-filter';
 
 describe('partial temporal filters', () => {
+	it('encodes independent segments without imposing an entry order', () => {
+		const yearOnly = encodeTemporalFilterValue({ year: '2026' });
+		const minuteOnly = encodeTemporalFilterValue({ minute: '7' });
+
+		expect(yearOnly).toBe('@t:2026,,,,,');
+		expect(minuteOnly).toBe('@t:,,,,7,');
+		expect(decodeTemporalFilterValue('date', yearOnly)).toEqual({ year: '2026' });
+		expect(decodeTemporalFilterValue('time', minuteOnly)).toEqual({ minute: '7' });
+		expect(encodeTemporalFilterValue({})).toBe('');
+	});
+
+	it('filters independent date segments as soon as any segment is entered', () => {
+		expect(
+			buildPartialTemporalCondition(
+				{ path: 'published_on', type: 'date' },
+				encodeTemporalFilterValue({ year: '2026' }),
+			),
+		).toEqual({ 'year(published_on)': { _eq: 2026 } });
+
+		expect(
+			buildPartialTemporalCondition({ path: 'published_on', type: 'date' }, encodeTemporalFilterValue({ month: '1' })),
+		).toEqual({ 'month(published_on)': { _eq: 1 } });
+	});
+
+	it('combines independently populated datetime and time segments', () => {
+		expect(
+			buildPartialTemporalCondition(
+				{ path: 'starts_at', type: 'dateTime' },
+				encodeTemporalFilterValue({ hour: '7', year: '2026' }),
+			),
+		).toEqual({
+			_and: [{ 'year(starts_at)': { _eq: 2026 } }, { 'hour(starts_at)': { _eq: 7 } }],
+		});
+
+		expect(
+			buildPartialTemporalCondition({ path: 'opens_at', type: 'time' }, encodeTemporalFilterValue({ minute: '7' })),
+		).toEqual({ 'minute(opens_at)': { _eq: 7 } });
+	});
+
 	it('filters date values from the first day digit', () => {
 		expect(buildPartialTemporalCondition({ path: 'published_on', type: 'date' }, '1')).toEqual({
 			'day(published_on)': { _in: [1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
@@ -70,5 +113,8 @@ describe('partial temporal filters', () => {
 		expect(buildPartialTemporalCondition({ path: 'opens_at', type: 'time' }, '99')).toEqual({
 			'hour(opens_at)': { _eq: -1 },
 		});
+		expect(
+			buildPartialTemporalCondition({ path: 'published_on', type: 'date' }, encodeTemporalFilterValue({ month: '13' })),
+		).toEqual({ 'day(published_on)': { _eq: 0 } });
 	});
 });
