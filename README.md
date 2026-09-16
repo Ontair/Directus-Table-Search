@@ -8,7 +8,7 @@ A schema-independent Directus layout extension for searching and filtering the v
 - Relational columns are searched through the fields required by their configured Directus display.
 - M2O, O2M, M2M, nested fields, and system-user displays use Directus relation metadata rather than schema-specific names.
 - Each visible column has an independent filter. Display fields inside one relational column are combined with OR; different columns are combined with AND.
-- Date, datetime, timestamp, and time column filters expose independent `DD.MM.YYYY` and `HH:MM:SS` segments. Users can start with any component, the active segment is highlighted, completed segments advance automatically, and every populated component is applied immediately.
+- Date, datetime, timestamp, and time column filters expose independent `DD.MM.YYYY` and `HH:MM:SS` segments. Users can start with any component, the active segment is highlighted, completed segments advance automatically, impossible prefixes are zero-padded like a native date input, and every populated component is applied immediately.
 - Column filters can use a responsive panel or a column-aligned row. Aligned filters follow resized column widths and expand over adjacent cells while focused so long values remain easy to edit without changing table geometry.
 - Existing user and system filters stay active and are combined with the generated filters.
 - Read permissions are checked for every field and relation hop before a query or filter path is generated.

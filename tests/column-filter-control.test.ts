@@ -26,7 +26,7 @@ describe('ColumnFilterControl', () => {
 	});
 
 	it.each([
-		['dateTime', 'Hour', '7', '@t:,,,7,,'],
+		['dateTime', 'Hour', '7', '@t:,,,07,,'],
 		['time', 'Minute', '5', '@t:,,,,5,'],
 	] as const)('allows any %s segment to be entered independently', async (kind, label, value, encoded) => {
 		const wrapper = mount(ColumnFilterControl, {
@@ -131,6 +131,48 @@ describe('ColumnFilterControl', () => {
 
 		await month.trigger('keydown', { key: 'Backspace' });
 		expect(document.activeElement).toBe(day.element);
+
+		wrapper.unmount();
+	});
+
+	it('normalizes impossible date prefixes and rolls a completed year forward', async () => {
+		const wrapper = mount(ColumnFilterControl, {
+			props: { kind: 'date', modelValue: '' },
+			attachTo: document.body,
+			global: {
+				stubs: {
+					'v-icon': true,
+					'v-input': true,
+					'v-list': true,
+					'v-list-item': true,
+					'v-list-item-content': true,
+					'v-menu': true,
+				},
+			},
+		});
+		const day = wrapper.get<HTMLInputElement>('input[aria-label="Day"]');
+		const month = wrapper.get<HTMLInputElement>('input[aria-label="Month"]');
+		const year = wrapper.get<HTMLInputElement>('input[aria-label="Year"]');
+
+		day.element.focus();
+		await day.setValue('9');
+		expect(day.element.value).toBe('09');
+		expect(document.activeElement).toBe(month.element);
+		expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['@t:,,09,,,']);
+
+		await month.setValue('9');
+		expect(month.element.value).toBe('09');
+		expect(document.activeElement).toBe(year.element);
+		expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['@t:,09,09,,,']);
+
+		await year.setValue('9999');
+		expect(year.element.value).toBe('9999');
+		expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['@t:9999,09,09,,,']);
+
+		year.element.setSelectionRange(4, 4);
+		await year.trigger('keydown', { key: '8' });
+		expect(year.element.value).toBe('9998');
+		expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['@t:9998,09,09,,,']);
 
 		wrapper.unmount();
 	});

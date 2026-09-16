@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 import type { ColumnFilterControlKind } from '../types';
 import { getColumnFilterControlConfig } from '../utils/filter-control';
@@ -34,12 +34,25 @@ const temporalKind = computed<TemporalFilterType | null>(() => {
 	if (props.kind === 'date' || props.kind === 'dateTime' || props.kind === 'time') return props.kind;
 	return null;
 });
-const temporalParts = computed(() =>
-	temporalKind.value ? decodeTemporalFilterValue(temporalKind.value, props.modelValue) : {},
-);
+const temporalParts = ref<TemporalFilterParts>({});
 const includesDate = computed(() => temporalKind.value === 'date' || temporalKind.value === 'dateTime');
 const includesTime = computed(() => temporalKind.value === 'time' || temporalKind.value === 'dateTime');
 const focusedTemporalPart = ref<keyof TemporalFilterParts | null>(null);
+const temporalPartRanges: Partial<Record<keyof TemporalFilterParts, { max: number; min: number }>> = {
+	day: { max: 31, min: 1 },
+	hour: { max: 23, min: 0 },
+	minute: { max: 59, min: 0 },
+	month: { max: 12, min: 1 },
+	second: { max: 59, min: 0 },
+};
+
+watch(
+	[temporalKind, () => props.modelValue],
+	([kind, value]) => {
+		temporalParts.value = kind ? decodeTemporalFilterValue(kind, value) : {};
+	},
+	{ immediate: true },
+);
 
 function updateBooleanValue(value: string): void {
 	emit('update:modelValue', value);
@@ -47,15 +60,12 @@ function updateBooleanValue(value: string): void {
 
 function updateTemporalPart(component: keyof TemporalFilterParts, maxLength: number, event: Event): void {
 	const input = event.target as HTMLInputElement;
-	const value = input.value.replace(/\D/g, '').slice(0, maxLength);
+	const rawValue = input.value.replace(/\D/g, '').slice(0, maxLength);
+	const { value, complete } = normalizeTemporalPart(component, rawValue, maxLength);
 	input.value = value;
+	emitTemporalPart(component, value);
 
-	const next = { ...temporalParts.value };
-	if (value) next[component] = value;
-	else delete next[component];
-	emit('update:modelValue', encodeTemporalFilterValue(next));
-
-	if (value.length === maxLength) focusAdjacentTemporalPart(input, 1);
+	if (complete) focusAdjacentTemporalPart(input, 1);
 }
 
 function focusTemporalPart(component: keyof TemporalFilterParts, event: FocusEvent | MouseEvent): void {
@@ -69,6 +79,19 @@ function blurTemporalPart(component: keyof TemporalFilterParts): void {
 
 function handleTemporalKeydown(event: KeyboardEvent): void {
 	const input = event.currentTarget as HTMLInputElement;
+	const component = input.getAttribute('data-temporal-part') as keyof TemporalFilterParts | null;
+	if (
+		/^\d$/.test(event.key) &&
+		component === 'year' &&
+		input.value.length === 4 &&
+		input.selectionStart === input.selectionEnd
+	) {
+		event.preventDefault();
+		input.value = `${input.value.slice(1)}${event.key}`;
+		emitTemporalPart(component, input.value);
+		return;
+	}
+
 	const moveNext = event.key === 'ArrowRight' || ['.', '/', '-', ':', ',', ' '].includes(event.key);
 	const movePrevious = event.key === 'ArrowLeft' || (event.key === 'Backspace' && input.value === '');
 	if (!moveNext && !movePrevious) return;
@@ -82,6 +105,39 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 	const segments = container ? [...container.querySelectorAll<HTMLInputElement>('.temporal-filter__segment')] : [];
 	const target = segments[segments.indexOf(input) + direction];
 	target?.focus();
+}
+
+function normalizeTemporalPart(
+	component: keyof TemporalFilterParts,
+	rawValue: string,
+	maxLength: number,
+): { complete: boolean; value: string } {
+	if (!rawValue) return { complete: false, value: '' };
+	if (component === 'year') return { complete: rawValue.length === maxLength, value: rawValue };
+
+	const range = temporalPartRanges[component];
+	if (!range) return { complete: rawValue.length === maxLength, value: rawValue };
+
+	if (rawValue.length === 1 && Number(rawValue) > Math.floor(range.max / 10)) {
+		return { complete: true, value: rawValue.padStart(maxLength, '0') };
+	}
+
+	if (rawValue.length < maxLength) return { complete: false, value: rawValue };
+
+	const numericValue = Number(rawValue);
+	if (numericValue >= range.min && numericValue <= range.max) return { complete: true, value: rawValue };
+
+	const lastDigit = Number(rawValue.slice(-1));
+	const fallback = lastDigit >= range.min && lastDigit <= Math.min(9, range.max) ? lastDigit : range.min;
+	return { complete: true, value: String(fallback).padStart(maxLength, '0') };
+}
+
+function emitTemporalPart(component: keyof TemporalFilterParts, value: string): void {
+	const next = { ...temporalParts.value };
+	if (value) next[component] = value;
+	else delete next[component];
+	temporalParts.value = next;
+	emit('update:modelValue', encodeTemporalFilterValue(next));
 }
 </script>
 
@@ -142,6 +198,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'day' }"
 					aria-label="Day"
 					class="temporal-filter__segment"
+					data-temporal-part="day"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="DD"
@@ -158,6 +215,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'month' }"
 					aria-label="Month"
 					class="temporal-filter__segment"
+					data-temporal-part="month"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="MM"
@@ -174,6 +232,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'year' }"
 					aria-label="Year"
 					class="temporal-filter__segment temporal-filter__segment--year"
+					data-temporal-part="year"
 					inputmode="numeric"
 					maxlength="4"
 					placeholder="YYYY"
@@ -192,6 +251,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'hour' }"
 					aria-label="Hour"
 					class="temporal-filter__segment"
+					data-temporal-part="hour"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="HH"
@@ -208,6 +268,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'minute' }"
 					aria-label="Minute"
 					class="temporal-filter__segment"
+					data-temporal-part="minute"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="MM"
@@ -224,6 +285,7 @@ function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): 
 					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'second' }"
 					aria-label="Second"
 					class="temporal-filter__segment"
+					data-temporal-part="second"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="SS"
