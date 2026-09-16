@@ -6,6 +6,29 @@ import { describe, expect, it } from 'vitest';
 import ColumnFilterControl from '../src/components/column-filter-control.vue';
 
 describe('ColumnFilterControl', () => {
+	it.each(['date', 'dateTime', 'time'] as const)('emits every typed character for %s filters', async (kind) => {
+		const wrapper = mount(ColumnFilterControl, {
+			props: { kind, modelValue: '' },
+			global: {
+				stubs: {
+					'v-icon': true,
+					'v-input': {
+						emits: ['update:modelValue'],
+						props: ['modelValue'],
+						template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+					},
+					'v-list': true,
+					'v-list-item': true,
+					'v-list-item-content': true,
+					'v-menu': true,
+				},
+			},
+		});
+
+		await wrapper.get('input').setValue('1');
+		expect(wrapper.emitted('update:modelValue')).toEqual([['1']]);
+	});
+
 	it('keeps the boolean selector controlled by its model value', async () => {
 		const wrapper = mount(ColumnFilterControl, {
 			props: {

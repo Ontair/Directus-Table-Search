@@ -50,12 +50,12 @@ describe('column filter controls', () => {
 			placeholder: 'Full number only…',
 		});
 		expect(getColumnFilterControlConfig('boolean').placeholder).toBe('Any');
-		expect(getColumnFilterControlConfig('date')).toMatchObject({ inputType: 'date', placeholder: 'Exact date…' });
+		expect(getColumnFilterControlConfig('date')).toMatchObject({ inputType: 'text', placeholder: 'DD.MM.YYYY…' });
 		expect(getColumnFilterControlConfig('dateTime')).toMatchObject({
-			inputType: 'datetime-local',
-			placeholder: 'Exact date and time…',
+			inputType: 'text',
+			placeholder: 'DD.MM.YYYY HH:MM…',
 		});
-		expect(getColumnFilterControlConfig('time')).toMatchObject({ inputType: 'time', placeholder: 'Exact time…' });
+		expect(getColumnFilterControlConfig('time')).toMatchObject({ inputType: 'text', placeholder: 'HH:MM:SS…' });
 		expect(getColumnFilterControlConfig('uuid')).toMatchObject({ inputType: 'text', placeholder: 'Exact UUID…' });
 		expect(getColumnFilterControlConfig('unsupported')).toEqual({
 			inputType: 'text',

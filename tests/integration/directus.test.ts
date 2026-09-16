@@ -139,6 +139,7 @@ describe('Directus filter integration', () => {
 			{ field: 'active', term: 'false', slug: 'article-02' },
 			{ field: 'published_on', term: '2026-09-10', slug: 'article-01' },
 			{ field: 'starts_at', term: '2026-09-10T12:34:00', slug: 'article-01' },
+			{ field: 'recorded_at', term: '10.09.2026 12:34:00', slug: 'article-01' },
 			{ field: 'opens_at', term: '12:34:00', slug: 'article-01' },
 			{ field: 'external_id', term: '123e4567-e89b-42d3-a456-426614174000', slug: 'article-01' },
 		];
@@ -156,6 +157,33 @@ describe('Directus filter integration', () => {
 				response.data.map((item) => item.slug),
 				testCase.field,
 			).toContain(testCase.slug);
+		}
+	});
+
+	it('executes incremental date, datetime, timestamp and time column filters', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ excluded: 'article-02', field: 'published_on', included: 'article-10', term: '1' },
+			{ excluded: 'article-01', field: 'published_on', included: 'article-10', term: '10.1' },
+			{ excluded: 'article-11', field: 'starts_at', included: 'article-10', term: '10.10.2026 1' },
+			{ excluded: 'article-11', field: 'starts_at', included: 'article-10', term: '10.10.2' },
+			{ excluded: 'article-11', field: 'recorded_at', included: 'article-10', term: '10.10.2026 1' },
+			{ excluded: 'article-02', field: 'opens_at', included: 'article-10', term: '1' },
+			{ excluded: 'article-11', field: 'opens_at', included: 'article-10', term: '10:1' },
+		];
+
+		for (const testCase of cases) {
+			const plans = buildColumnPlans(collections.articles, [testCase.field], metadata);
+			const filter = buildColumnFilters(plans, { [testCase.field]: testCase.term });
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter,
+			});
+			const slugs = response.data.map((item) => item.slug);
+
+			expect(response.status, `${testCase.field}: ${JSON.stringify(response.body)}`).toBe(200);
+			expect(slugs, testCase.field).toContain(testCase.included);
+			expect(slugs, testCase.field).not.toContain(testCase.excluded);
 		}
 	});
 
@@ -316,6 +344,7 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 			scalarField('active', 'boolean'),
 			scalarField('published_on', 'date'),
 			scalarField('starts_at', 'dateTime'),
+			scalarField('recorded_at', 'timestamp'),
 			scalarField('opens_at', 'time'),
 			scalarField('external_id', 'uuid'),
 			scalarField('password_hash', 'hash'),
@@ -331,6 +360,7 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 		scalarField('active', 'boolean'),
 		scalarField('published_on', 'date'),
 		scalarField('starts_at', 'dateTime'),
+		scalarField('recorded_at', 'timestamp'),
 		scalarField('opens_at', 'time'),
 		scalarField('external_id', 'uuid'),
 		scalarField('password_hash', 'hash'),
@@ -373,19 +403,26 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 	const articleIds: number[] = [];
 	for (let rank = 1; rank <= 30; rank += 1) {
 		const slug = `article-${String(rank).padStart(2, '0')}`;
+		const month = String(((rank - 1) % 12) + 1).padStart(2, '0');
+		const day = String(((rank - 1) % 28) + 1).padStart(2, '0');
+		const hour = String(rank % 24).padStart(2, '0');
+		const minute = String(rank % 60).padStart(2, '0');
+		const date = `2026-${month}-${day}`;
+		const time = `${hour}:${minute}:00`;
 		const article = await ensureItem(client, collections.articles, slug, {
 			active: rank % 2 === 1,
 			amount: rank === 1 ? '1234.56789' : String(rank),
 			author: rank === 1 ? ada.id : grace.id,
 			editor: rank === 1 ? restrictedUser.id : null,
 			external_id: rank === 1 ? '123e4567-e89b-42d3-a456-426614174000' : null,
-			opens_at: rank === 1 ? '12:34:00' : null,
-			published_on: rank === 1 ? '2026-09-10' : null,
+			opens_at: rank === 1 ? '12:34:00' : time,
+			published_on: rank === 1 ? '2026-09-10' : date,
 			rank,
+			recorded_at: rank === 1 ? '2026-09-10T12:34:00.000Z' : `${date}T${time}.000Z`,
 			ratio: rank === 1 ? 1.25 : rank,
 			reference_number: rank === 1 ? '9007199254740993' : String(9_007_199_254_740_000n + BigInt(rank)),
 			sort: rank,
-			starts_at: rank === 1 ? '2026-09-10T12:34:00' : null,
+			starts_at: rank === 1 ? '2026-09-10T12:34:00' : `${date}T${time}`,
 			status: rank === 2 || rank % 3 === 0 ? 'draft' : 'published',
 			title: rank === 1 ? 'Visible Search Guide' : rank === 2 ? 'Guide Draft' : `Article ${rank}`,
 		});
@@ -707,7 +744,7 @@ function integerField(field: string): Record<string, unknown> {
 
 function scalarField(
 	field: string,
-	type: 'bigInteger' | 'boolean' | 'date' | 'dateTime' | 'decimal' | 'float' | 'hash' | 'time' | 'uuid',
+	type: 'bigInteger' | 'boolean' | 'date' | 'dateTime' | 'decimal' | 'float' | 'hash' | 'time' | 'timestamp' | 'uuid',
 	options: { numericPrecision?: number; numericScale?: number } = {},
 ): Record<string, unknown> {
 	return {
@@ -716,12 +753,12 @@ function scalarField(
 			interface:
 				type === 'boolean'
 					? 'boolean'
-					: type === 'date' || type === 'dateTime'
+					: type === 'date' || type === 'dateTime' || type === 'timestamp'
 						? 'datetime'
 						: type === 'hash'
 							? 'input-hash'
 							: 'input',
-			special: type === 'hash' ? ['hash', 'conceal'] : null,
+			special: type === 'hash' ? ['hash', 'conceal'] : type === 'timestamp' ? ['cast-timestamp'] : null,
 		},
 		schema: {
 			is_nullable: true,

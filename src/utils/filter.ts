@@ -1,5 +1,6 @@
 import type { ColumnFilterValues, ColumnPlan, FilterNode, SearchLeaf } from '../types';
 import { getSearchValueKind } from './search-type';
+import { buildPartialTemporalCondition } from './temporal-filter';
 
 export function buildGlobalSearchFilter(plans: ColumnPlan[], rawTerm: string | null | undefined): FilterNode | null {
 	const term = rawTerm?.trim();
@@ -18,11 +19,19 @@ export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValu
 			const term = values[plan.key]?.trim();
 			if (!term) return null;
 
-			return combineWithOr(plan.searchLeaves.map((leaf) => buildLeafCondition(leaf, term)).filter(isFilterNode));
+			return combineWithOr(plan.searchLeaves.map((leaf) => buildColumnLeafCondition(leaf, term)).filter(isFilterNode));
 		})
 		.filter(isFilterNode);
 
 	return combineWithAnd(conditions);
+}
+
+function buildColumnLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
+	const kind = getSearchValueKind(leaf.type);
+	if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
+		return buildPartialTemporalCondition(leaf, term);
+	}
+	return buildLeafCondition(leaf, term);
 }
 
 export function combineFilters(...filters: Array<FilterNode | null | undefined>): FilterNode | null {

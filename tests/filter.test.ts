@@ -43,6 +43,17 @@ describe('filter generation', () => {
 		});
 	});
 
+	it('uses partial temporal matching only for column filters', () => {
+		const temporalPlans: ColumnPlan[] = [
+			{ key: 'published_on', searchLeaves: [{ path: 'published_on', type: 'date' }] },
+		];
+
+		expect(buildColumnFilters(temporalPlans, { published_on: '1' })).toEqual({
+			'day(published_on)': { _in: [1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
+		});
+		expect(buildGlobalSearchFilter(temporalPlans, '1')).toBeNull();
+	});
+
 	it('keeps existing Directus filters active', () => {
 		const existing = { status: { _eq: 'published' } };
 		const global = buildGlobalSearchFilter(plans, 'guide');
