@@ -42,6 +42,8 @@ services:
     volumes:
       - directus_v11_uploads:/directus/uploads
       - ${DIRECTUS_EXTENSIONS_DIR:-../directus/extensions}:/directus/extensions
+      - ./dist/index.js:/directus/extensions/directus-extension-table-search/dist/index.js:ro
+      - ./package.json:/directus/extensions/directus-extension-table-search/package.json:ro
 
   migrate-sqlite:
     image: directus/directus:11.12.0
