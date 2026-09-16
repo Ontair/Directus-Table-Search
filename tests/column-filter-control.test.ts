@@ -70,6 +70,71 @@ describe('ColumnFilterControl', () => {
 		expect(wrapper.get<HTMLInputElement>('input[aria-label="Hour"]').element.value).toBe('');
 	});
 
+	it('highlights the active segment and advances after it is filled', async () => {
+		const wrapper = mount(ColumnFilterControl, {
+			props: { kind: 'date', modelValue: '' },
+			attachTo: document.body,
+			global: {
+				stubs: {
+					'v-icon': true,
+					'v-input': true,
+					'v-list': true,
+					'v-list-item': true,
+					'v-list-item-content': true,
+					'v-menu': true,
+				},
+			},
+		});
+		const day = wrapper.get<HTMLInputElement>('input[aria-label="Day"]');
+		const month = wrapper.get<HTMLInputElement>('input[aria-label="Month"]');
+
+		day.element.focus();
+		await wrapper.vm.$nextTick();
+		expect(day.classes()).toContain('temporal-filter__segment--active');
+
+		await day.setValue('12');
+		expect(document.activeElement).toBe(month.element);
+		expect(month.classes()).toContain('temporal-filter__segment--active');
+		expect(wrapper.emitted('update:modelValue')).toEqual([['@t:,,12,,,']]);
+
+		wrapper.unmount();
+	});
+
+	it('moves between segments with arrows, separators, and backspace', async () => {
+		const wrapper = mount(ColumnFilterControl, {
+			props: { kind: 'dateTime', modelValue: '' },
+			attachTo: document.body,
+			global: {
+				stubs: {
+					'v-icon': true,
+					'v-input': true,
+					'v-list': true,
+					'v-list-item': true,
+					'v-list-item-content': true,
+					'v-menu': true,
+				},
+			},
+		});
+		const day = wrapper.get<HTMLInputElement>('input[aria-label="Day"]');
+		const month = wrapper.get<HTMLInputElement>('input[aria-label="Month"]');
+		const year = wrapper.get<HTMLInputElement>('input[aria-label="Year"]');
+
+		day.element.focus();
+		await day.trigger('keydown', { key: '.' });
+		expect(document.activeElement).toBe(month.element);
+
+		await month.trigger('keydown', { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(year.element);
+
+		await year.trigger('keydown', { key: 'ArrowLeft' });
+		expect(document.activeElement).toBe(month.element);
+
+		await month.trigger('keydown', { key: 'Backspace' });
+		expect(document.activeElement).toBe(day.element);
+
+		wrapper.unmount();
+	});
+
 	it('keeps the boolean selector controlled by its model value', async () => {
 		const wrapper = mount(ColumnFilterControl, {
 			props: {

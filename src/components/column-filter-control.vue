@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 import type { ColumnFilterControlKind } from '../types';
 import { getColumnFilterControlConfig } from '../utils/filter-control';
@@ -39,6 +39,7 @@ const temporalParts = computed(() =>
 );
 const includesDate = computed(() => temporalKind.value === 'date' || temporalKind.value === 'dateTime');
 const includesTime = computed(() => temporalKind.value === 'time' || temporalKind.value === 'dateTime');
+const focusedTemporalPart = ref<keyof TemporalFilterParts | null>(null);
 
 function updateBooleanValue(value: string): void {
 	emit('update:modelValue', value);
@@ -53,10 +54,34 @@ function updateTemporalPart(component: keyof TemporalFilterParts, maxLength: num
 	if (value) next[component] = value;
 	else delete next[component];
 	emit('update:modelValue', encodeTemporalFilterValue(next));
+
+	if (value.length === maxLength) focusAdjacentTemporalPart(input, 1);
 }
 
-function selectTemporalPart(event: FocusEvent): void {
-	(event.target as HTMLInputElement).select();
+function focusTemporalPart(component: keyof TemporalFilterParts, event: FocusEvent | MouseEvent): void {
+	focusedTemporalPart.value = component;
+	(event.currentTarget as HTMLInputElement).select();
+}
+
+function blurTemporalPart(component: keyof TemporalFilterParts): void {
+	if (focusedTemporalPart.value === component) focusedTemporalPart.value = null;
+}
+
+function handleTemporalKeydown(event: KeyboardEvent): void {
+	const input = event.currentTarget as HTMLInputElement;
+	const moveNext = event.key === 'ArrowRight' || ['.', '/', '-', ':', ',', ' '].includes(event.key);
+	const movePrevious = event.key === 'ArrowLeft' || (event.key === 'Backspace' && input.value === '');
+	if (!moveNext && !movePrevious) return;
+
+	event.preventDefault();
+	focusAdjacentTemporalPart(input, moveNext ? 1 : -1);
+}
+
+function focusAdjacentTemporalPart(input: HTMLInputElement, direction: -1 | 1): void {
+	const container = input.closest('.temporal-filter-control');
+	const segments = container ? [...container.querySelectorAll<HTMLInputElement>('.temporal-filter__segment')] : [];
+	const target = segments[segments.indexOf(input) + direction];
+	target?.focus();
 }
 </script>
 
@@ -114,37 +139,49 @@ function selectTemporalPart(event: FocusEvent): void {
 				<input
 					:value="temporalParts.day ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'day' }"
 					aria-label="Day"
 					class="temporal-filter__segment"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="DD"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('day')"
+					@click="focusTemporalPart('day', $event)"
+					@focus="focusTemporalPart('day', $event)"
 					@input="updateTemporalPart('day', 2, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 				<span class="temporal-filter__separator">.</span>
 				<input
 					:value="temporalParts.month ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'month' }"
 					aria-label="Month"
 					class="temporal-filter__segment"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="MM"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('month')"
+					@click="focusTemporalPart('month', $event)"
+					@focus="focusTemporalPart('month', $event)"
 					@input="updateTemporalPart('month', 2, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 				<span class="temporal-filter__separator">.</span>
 				<input
 					:value="temporalParts.year ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'year' }"
 					aria-label="Year"
 					class="temporal-filter__segment temporal-filter__segment--year"
 					inputmode="numeric"
 					maxlength="4"
 					placeholder="YYYY"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('year')"
+					@click="focusTemporalPart('year', $event)"
+					@focus="focusTemporalPart('year', $event)"
 					@input="updateTemporalPart('year', 4, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 			</div>
 			<span v-if="temporalKind === 'dateTime'" class="temporal-filter__separator">,</span>
@@ -152,37 +189,49 @@ function selectTemporalPart(event: FocusEvent): void {
 				<input
 					:value="temporalParts.hour ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'hour' }"
 					aria-label="Hour"
 					class="temporal-filter__segment"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="HH"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('hour')"
+					@click="focusTemporalPart('hour', $event)"
+					@focus="focusTemporalPart('hour', $event)"
 					@input="updateTemporalPart('hour', 2, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 				<span class="temporal-filter__separator">:</span>
 				<input
 					:value="temporalParts.minute ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'minute' }"
 					aria-label="Minute"
 					class="temporal-filter__segment"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="MM"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('minute')"
+					@click="focusTemporalPart('minute', $event)"
+					@focus="focusTemporalPart('minute', $event)"
 					@input="updateTemporalPart('minute', 2, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 				<span class="temporal-filter__separator">:</span>
 				<input
 					:value="temporalParts.second ?? ''"
 					:disabled="disabled"
+					:class="{ 'temporal-filter__segment--active': focusedTemporalPart === 'second' }"
 					aria-label="Second"
 					class="temporal-filter__segment"
 					inputmode="numeric"
 					maxlength="2"
 					placeholder="SS"
-					@focus="selectTemporalPart"
+					@blur="blurTemporalPart('second')"
+					@click="focusTemporalPart('second', $event)"
+					@focus="focusTemporalPart('second', $event)"
 					@input="updateTemporalPart('second', 2, $event)"
+					@keydown="handleTemporalKeydown"
 				/>
 			</div>
 			<v-icon :name="temporalKind === 'time' ? 'schedule' : 'calendar_month'" x-small class="temporal-filter__icon" />
@@ -271,7 +320,12 @@ function selectTemporalPart(event: FocusEvent): void {
 	text-align: center;
 	background: transparent;
 	border: 0;
+	border-radius: 2px;
 	outline: 0;
+	cursor: text;
+	transition:
+		color var(--fast) var(--transition),
+		background-color var(--fast) var(--transition);
 }
 
 .temporal-filter__segment--year {
@@ -284,6 +338,21 @@ function selectTemporalPart(event: FocusEvent): void {
 .temporal-filter__icon {
 	color: var(--theme--form--field--input--foreground-subdued);
 	opacity: 1;
+}
+
+.temporal-filter__segment:hover,
+.temporal-filter__segment--active {
+	color: var(--theme--primary);
+	background: var(--theme--primary-background);
+}
+
+.temporal-filter__segment--active::placeholder {
+	color: var(--theme--primary);
+}
+
+.temporal-filter__segment::selection {
+	color: var(--theme--primary);
+	background: var(--theme--primary-background);
 }
 
 .temporal-filter__icon:last-child {
