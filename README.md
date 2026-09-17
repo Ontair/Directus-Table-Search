@@ -64,10 +64,17 @@ This generated expression is combined with the active Directus filter using `_an
 
 The layout contributes its own **Export Table Search** panel to the sidebar. It
 describes the same query the list request uses — projection, generated filter,
-sort, and content version — and hands it to Directus through the documented
-`export` query parameter, so Directus renders the file itself and applies the
-same permissions as the table. CSV, JSON, XML, and YAML are available, for all
-matching items, the current page, or the current selection.
+sort, and content version — and hands that description to Directus, which
+renders the file itself under the same permissions as the table. CSV, JSON,
+XML, and YAML are available.
+
+The route depends on how much is exported. The current page and the current
+selection are bounded, so they are rendered inline through the documented
+`export` query parameter and saved by the browser. All matching items may be
+an arbitrarily large result set, so that export is started on the server with
+`POST /utils/export/:collection`: Directus writes the file to the file library
+and notifies the user, which keeps a large export out of the browser tab and
+off an open request.
 
 Directus' built-in **Export Items** panel is rendered by the collection route
 and receives only the host filter and search, so it cannot see this layout's
