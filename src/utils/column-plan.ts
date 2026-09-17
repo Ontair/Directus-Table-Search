@@ -1,6 +1,7 @@
 import type { Field } from '@directus/types';
 
 import type { ColumnPlan, MetadataAccess, SearchLeaf } from '../types';
+import { getReadableDisplayPaths } from './display-path';
 import { resolveReadableFieldPath } from './field-path';
 
 const NON_SEARCHABLE_TYPES = new Set([
@@ -53,10 +54,8 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 }
 
 function getRelationalDisplayPaths(collection: string, key: string, field: Field, metadata: MetadataAccess): string[] {
-	const displayFields = metadata
-		.getDisplayFields(field)
-		.filter((path) => path && !path.split('.').some((part) => part.startsWith('$')));
-	if (displayFields.length > 0) return displayFields.map((path) => `${key}.${path}`);
+	const displayFields = getReadableDisplayPaths(collection, key, metadata);
+	if (metadata.getDisplayFields(field).length > 0) return displayFields;
 
 	const relatedCollection = getDirectRelatedCollection(collection, key, metadata);
 	if (!relatedCollection) return [key];

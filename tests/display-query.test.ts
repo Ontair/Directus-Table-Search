@@ -46,6 +46,28 @@ describe('buildDisplayQuery', () => {
 	it('removes virtual path segments when resolving a cell value', () => {
 		const query = buildDisplayQuery('articles', ['author.$thumbnail.first_name'], createSchema());
 
+		expect(query.fields).toEqual(['author.first_name']);
 		expect(query.valuePaths['author.$thumbnail.first_name']).toBe('author.first_name');
+	});
+
+	it('never projects display fields that the current role cannot read', () => {
+		const metadata = createSchema({
+			denied: ['directus_users.avatar', 'directus_users.email'],
+		});
+		const query = buildDisplayQuery('articles', ['title', 'editor'], metadata);
+
+		expect(query.fields).toEqual(['title', 'editor.id', 'editor.first_name', 'editor.last_name']);
+		expect(query.fields).not.toContain('editor.avatar.id');
+		expect(query.fields).not.toContain('editor.email');
+	});
+
+	it('falls back to the readable relation field when all configured display fields are forbidden', () => {
+		const metadata = createSchema({
+			denied: ['authors.first_name', 'authors.last_name', 'authors.id'],
+		});
+		const query = buildDisplayQuery('articles', ['author'], metadata);
+
+		expect(query.fields).toEqual(['author']);
+		expect(query.valuePaths).toEqual({ author: 'author' });
 	});
 });

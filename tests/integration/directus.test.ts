@@ -250,8 +250,12 @@ describe('Directus filter integration', () => {
 			expect(authorPlan?.searchLeaves.map(({ path }) => path)).toContain('author.name');
 
 			const safeFilter = buildGlobalSearchFilter(plans, 'Ada Lovelace');
+			const displayQuery = buildDisplayQuery(collections.articles, ['slug', 'author'], metadata);
+			expect(displayQuery.fields).not.toContain('author.code');
+			expect(displayQuery.fields).toContain('author.name');
 			const safeResponse = await restricted.getItems(collections.articles, {
-				fields: ['id', 'slug', 'author.name'],
+				alias: displayQuery.alias,
+				fields: displayQuery.fields,
 				filter: safeFilter,
 			});
 			expect(safeResponse.status, JSON.stringify(safeResponse.body)).toBe(200);
