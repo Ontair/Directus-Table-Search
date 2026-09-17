@@ -35,8 +35,8 @@
 		"host": "^11.12.0 || ^12.0.0"
 	},
 	"devDependencies": {
-		"@directus/extensions-sdk": "18.0.0",
-		"@directus/types": "16.0.0",
+		"@directus/extensions-sdk": "18.0.4",
+		"@directus/types": "16.2.0",
 		"@eslint/js": "9.35.0",
 		"@types/node": "22.18.1",
 		"@vitejs/plugin-vue": "5.2.3",
@@ -53,6 +53,6 @@
 		"vue-eslint-parser": "10.2.0",
 		"vue-router": "4.6.3",
 		"vue-tsc": "3.0.6",
-		"ws": "8.18.3"
+		"ws": "8.21.0"
 	}
 }
