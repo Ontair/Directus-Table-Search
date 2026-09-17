@@ -18,11 +18,13 @@ import type {
 	TableSort,
 } from './types';
 import { buildColumnPlans } from './utils/column-plan';
+import { buildCsvDocument, createCsvFilename, downloadCsvFile } from './utils/csv';
 import { getDefaultDisplay } from './utils/default-display';
 import { buildDisplayQuery } from './utils/display-query';
 import { buildColumnFilterKinds } from './utils/filter-control';
 import { isFieldAllowed } from './utils/field-permission';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
+import { getValueAtPath } from './utils/object';
 import { planRowInteraction } from './utils/row-interaction';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
@@ -287,6 +289,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			columnFilterMode,
 			columnFilterKinds,
 			columnFilters,
+			download,
 			error,
 			fields,
 			fieldsInCollection,
@@ -380,6 +383,42 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			void getItems();
 			void getItemCount(true);
 			void getTotalCount(true);
+		}
+
+		function download(): void {
+			if (!collection.value) return;
+
+			const headers = tableHeaders.value;
+			const rows = items.value.map((item) =>
+				headers.map((header) => {
+					const value = getValueAtPath(
+						item as Record<string, unknown>,
+						itemValuePaths.value[header.value] ?? header.value,
+					);
+					if (value === null || value === undefined) return value;
+
+					const display = displays.value.find(({ id }) => id === header.field.display);
+					if (!display?.handler) return value;
+
+					try {
+						return display.handler(value, header.field.displayOptions ?? {}, {
+							collection: header.field.collection,
+							field: fieldsStore.getField(header.field.collection, header.field.field) ?? undefined,
+							interfaceOptions: header.field.interfaceOptions ?? {},
+						});
+					} catch {
+						return value;
+					}
+				}),
+			);
+
+			downloadCsvFile(
+				createCsvFilename(collection.value),
+				buildCsvDocument(
+					headers.map(({ text }) => text),
+					rows,
+				),
+			);
 		}
 
 		async function resetPresetAndRefresh(): Promise<void> {
