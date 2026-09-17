@@ -17,6 +17,7 @@ import type {
 	TableHeader,
 	TableSort,
 } from './types';
+import { pruneColumnFilters } from './utils/column-filter-state';
 import { buildColumnPlans } from './utils/column-plan';
 import { buildCsvDocument, createCsvFilename, downloadCsvFile } from './utils/csv';
 import { getDefaultDisplay } from './utils/default-display';
@@ -72,7 +73,11 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 				return (saved ?? defaultFields.value).filter((field) => fieldsStore.getField(collection.value, field));
 			},
 			set: (value) => {
-				layoutQuery.value = { ...layoutQuery.value, fields: value };
+				layoutQuery.value = {
+					...layoutQuery.value,
+					columnFilters: pruneColumnFilters(layoutQuery.value?.columnFilters ?? {}, value),
+					fields: value,
+				};
 			},
 		});
 
@@ -103,9 +108,12 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		});
 
 		const columnFilters = computed<ColumnFilterValues>({
-			get: () => layoutQuery.value?.columnFilters ?? {},
+			get: () => pruneColumnFilters(layoutQuery.value?.columnFilters ?? {}, fields.value),
 			set: (value) => {
-				layoutQuery.value = { ...layoutQuery.value, columnFilters: value };
+				layoutQuery.value = {
+					...layoutQuery.value,
+					columnFilters: pruneColumnFilters(value, fields.value),
+				};
 			},
 		});
 
