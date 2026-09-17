@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ColumnPlan } from '../src/types';
-import { buildColumnFilters, buildGlobalSearchFilter, buildLeafCondition, combineFilters } from '../src/utils/filter';
+import {
+	buildColumnFilters,
+	buildColumnFiltersResult,
+	buildGlobalSearchFilter,
+	buildGlobalSearchFilterResult,
+	buildLeafCondition,
+	combineFilters,
+} from '../src/utils/filter';
 import { encodeTemporalFilterValue } from '../src/utils/temporal-filter';
 
 const plans: ColumnPlan[] = [
@@ -52,7 +59,9 @@ describe('filter generation', () => {
 		expect(buildColumnFilters(temporalPlans, { published_on: encodeTemporalFilterValue({ day: '1' }) })).toEqual({
 			'day(published_on)': { _eq: 1 },
 		});
-		expect(buildGlobalSearchFilter(temporalPlans, '1')).toBeNull();
+		expect(buildGlobalSearchFilter(temporalPlans, '1')).toEqual({
+			_and: [{ published_on: { _null: true } }, { published_on: { _nnull: true } }],
+		});
 	});
 
 	it('keeps existing Directus filters active', () => {
@@ -103,5 +112,33 @@ describe('filter generation', () => {
 		expect(buildGlobalSearchFilter(plans, '   ')).toBeNull();
 		expect(buildColumnFilters(plans, {})).toBeNull();
 		expect(combineFilters(null, undefined)).toBeNull();
+	});
+
+	it('turns active invalid exact values into a safe no-match filter', () => {
+		const uuidPlans: ColumnPlan[] = [{ key: 'owner', searchLeaves: [{ path: 'owner', type: 'uuid' }] }];
+		const expected = {
+			_and: [{ owner: { _null: true } }, { owner: { _nnull: true } }],
+		};
+
+		expect(buildColumnFiltersResult(uuidPlans, { owner: 'partial-uuid' })).toEqual({
+			filter: expected,
+			status: 'invalid',
+		});
+		expect(buildGlobalSearchFilterResult(uuidPlans, 'partial-uuid')).toEqual({
+			filter: expected,
+			status: 'invalid',
+		});
+	});
+
+	it('validates complete calendar and clock values before sending them to Directus', () => {
+		expect(buildLeafCondition({ path: 'published_on', type: 'date' }, '2026-02-29')).toBeNull();
+		expect(buildLeafCondition({ path: 'published_on', type: 'date' }, '2024-02-29')).toEqual({
+			published_on: { _eq: '2024-02-29' },
+		});
+		expect(buildLeafCondition({ path: 'opens_at', type: 'time' }, '24:00')).toBeNull();
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59tail')).toBeNull();
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59Z')).toEqual({
+			starts_at: { _eq: '2026-01-01T23:59Z' },
+		});
 	});
 });

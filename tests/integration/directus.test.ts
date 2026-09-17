@@ -161,6 +161,29 @@ describe('Directus filter integration', () => {
 		}
 	});
 
+	it('keeps active invalid exact filters safe instead of dropping them', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ field: 'rank', term: 'not-a-number' },
+			{ field: 'reference_number', term: '7x' },
+			{ field: 'amount', term: '1.2.3' },
+			{ field: 'active', term: 'maybe' },
+			{ field: 'external_id', term: '123e4567' },
+		];
+
+		for (const testCase of cases) {
+			const plans = buildColumnPlans(collections.articles, [testCase.field], metadata);
+			const filter = buildColumnFilters(plans, { [testCase.field]: testCase.term });
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter,
+			});
+
+			expect(response.status, `${testCase.field}: ${JSON.stringify(response.body)}`).toBe(200);
+			expect(response.data, testCase.field).toEqual([]);
+		}
+	});
+
 	it('executes independent date, datetime, timestamp and time segments', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [

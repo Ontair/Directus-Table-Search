@@ -2,6 +2,10 @@ import type { Field, Item, Relation } from '@directus/types';
 
 export type FilterNode = Record<string, unknown>;
 
+export type FilterBuildResult =
+	| { filter: null; status: 'empty' | 'unsupported' }
+	| { filter: FilterNode; status: 'invalid' | 'valid' };
+
 export type ShowSelect = 'multiple' | 'none' | 'one';
 
 export type ColumnFilterValues = Record<string, string>;

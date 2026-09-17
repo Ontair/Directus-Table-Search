@@ -1,29 +1,70 @@
-import type { ColumnFilterValues, ColumnPlan, FilterNode, SearchLeaf } from '../types';
+import type { ColumnFilterValues, ColumnPlan, FilterBuildResult, FilterNode, SearchLeaf } from '../types';
 import { getSearchValueKind } from './search-type';
 import { buildPartialTemporalCondition } from './temporal-filter';
 
 export function buildGlobalSearchFilter(plans: ColumnPlan[], rawTerm: string | null | undefined): FilterNode | null {
+	return buildGlobalSearchFilterResult(plans, rawTerm).filter;
+}
+
+export function buildGlobalSearchFilterResult(
+	plans: ColumnPlan[],
+	rawTerm: string | null | undefined,
+): FilterBuildResult {
 	const term = rawTerm?.trim();
-	if (!term) return null;
+	if (!term) return { filter: null, status: 'empty' };
 
-	const conditions = uniqueLeaves(plans.flatMap((plan) => plan.searchLeaves))
-		.map((leaf) => buildLeafCondition(leaf, term))
-		.filter(isFilterNode);
+	const leaves = uniqueLeaves(plans.flatMap((plan) => plan.searchLeaves));
+	const conditions = leaves.map((leaf) => buildLeafCondition(leaf, term)).filter(isFilterNode);
+	const filter = combineWithOr(conditions);
 
-	return combineWithOr(conditions);
+	if (filter) return { filter, status: 'valid' };
+	if (leaves[0]) return { filter: impossibleLeafCondition(leaves[0]), status: 'invalid' };
+	return { filter: null, status: 'unsupported' };
 }
 
 export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValues): FilterNode | null {
-	const conditions = plans
-		.map((plan) => {
-			const term = values[plan.key]?.trim();
-			if (!term) return null;
+	return buildColumnFiltersResult(plans, values).filter;
+}
 
-			return combineWithOr(plan.searchLeaves.map((leaf) => buildColumnLeafCondition(leaf, term)).filter(isFilterNode));
-		})
-		.filter(isFilterNode);
+export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilterValues): FilterBuildResult {
+	const conditions: FilterNode[] = [];
+	let hasActiveValue = false;
+	let hasInvalidValue = false;
+	let hasUnsupportedValue = false;
 
-	return combineWithAnd(conditions);
+	for (const plan of plans) {
+		const term = values[plan.key]?.trim();
+		if (!term) continue;
+		hasActiveValue = true;
+
+		if (plan.searchLeaves.length === 0) {
+			hasUnsupportedValue = true;
+			continue;
+		}
+
+		const columnCondition = combineWithOr(
+			plan.searchLeaves.map((leaf) => buildColumnLeafCondition(leaf, term)).filter(isFilterNode),
+		);
+		if (columnCondition) conditions.push(columnCondition);
+		else {
+			hasInvalidValue = true;
+			conditions.push(impossibleLeafCondition(plan.searchLeaves[0]!));
+		}
+	}
+
+	if (!hasActiveValue) return { filter: null, status: 'empty' };
+
+	if (hasUnsupportedValue) {
+		const fallbackLeaf = plans.flatMap((plan) => plan.searchLeaves)[0];
+		if (fallbackLeaf) {
+			hasInvalidValue = true;
+			conditions.push(impossibleLeafCondition(fallbackLeaf));
+		}
+	}
+
+	const filter = combineWithAnd(conditions);
+	if (filter) return { filter, status: hasInvalidValue ? 'invalid' : 'valid' };
+	return { filter: null, status: 'unsupported' };
 }
 
 function buildColumnLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
@@ -114,9 +155,39 @@ function isUuid(value: string): boolean {
 }
 
 function isDateValue(type: string, value: string): boolean {
-	if (type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(value);
-	if (type === 'time') return /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value);
-	return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(value);
+	if (type === 'date') return isValidDate(value);
+	if (type === 'time') return isValidTime(value);
+
+	const match = value.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(?:Z|[+-]\d{2}:\d{2})?$/);
+	return match !== null && isValidDate(match[1]!) && isValidTime(match[2]!);
+}
+
+function isValidDate(value: string): boolean {
+	const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (!match) return false;
+
+	const year = Number(match[1]);
+	const month = Number(match[2]);
+	const day = Number(match[3]);
+	if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+
+	return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function isValidTime(value: string): boolean {
+	const match = value.match(/^(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/);
+	if (!match) return false;
+
+	const hour = Number(match[1]);
+	const minute = Number(match[2]);
+	const second = match[3] === undefined ? 0 : Number(match[3]);
+	return hour <= 23 && minute <= 59 && second <= 59;
+}
+
+function impossibleLeafCondition(leaf: SearchLeaf): FilterNode {
+	return {
+		_and: [nestPath(leaf.path, { _null: true }), nestPath(leaf.path, { _nnull: true })],
+	};
 }
 
 function uniqueLeaves(leaves: SearchLeaf[]): SearchLeaf[] {
