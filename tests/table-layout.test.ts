@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 
 import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import TableLayout from '../src/components/table-layout.vue';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 function header(value: string, text: string) {
 	return {
@@ -127,6 +131,31 @@ describe('TableLayout pagination', () => {
 });
 
 describe('TableLayout filter feedback', () => {
+	it('renders typed column text immediately and applies the server filter after a pause', async () => {
+		vi.useFakeTimers();
+		const { wrapper } = mountLayout({
+			columnFilterKinds: { title: 'text' },
+			showColumnFilters: true,
+			tableHeaders: [header('title', 'Title')],
+		});
+		const control = wrapper.findComponent({ name: 'ColumnFilterControl' });
+
+		control.vm.$emit('update:modelValue', 'с');
+		await wrapper.vm.$nextTick();
+		control.vm.$emit('update:modelValue', 'си');
+		await wrapper.vm.$nextTick();
+		control.vm.$emit('update:modelValue', 'сигма');
+		await wrapper.vm.$nextTick();
+
+		expect(control.props('modelValue')).toBe('сигма');
+		expect(wrapper.emitted('update:columnFilters')).toBeUndefined();
+
+		vi.advanceTimersByTime(300);
+		await wrapper.vm.$nextTick();
+
+		expect(wrapper.emitted('update:columnFilters')).toEqual([[{ title: 'сигма' }]]);
+	});
+
 	it('stays silent while the generated filters are usable', () => {
 		const { wrapper } = mountLayout();
 

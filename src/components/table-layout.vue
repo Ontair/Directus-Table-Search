@@ -37,12 +37,15 @@ const mainElement = inject<Ref<Element | undefined>>('main-element');
 const pageSizes = [25, 50, 100, 250, 500, 1000];
 const alignments = ['left', 'center', 'right'] as const;
 const fallbackAuxiliaryColumnWidth = 36;
+const filterApplyDelay = 300;
 const focusedFilter = ref<string | null>(null);
 const measuredGridTemplateColumns = ref<string | null>(null);
 const measuredColumnWidths = ref<number[]>([]);
+const draftColumnFilters = ref<Record<string, string>>({ ...props.columnFilters });
 
 let headerResizeObserver: ResizeObserver | undefined;
 let observedHeaderRow: HTMLElement | null = null;
+let filterApplyTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
 const selectionWritable = computed({
 	get: () => props.selection,
@@ -55,7 +58,7 @@ const tableHeadersWritable = computed({
 });
 
 const activeFilterCount = computed(
-	() => Object.values(props.columnFilters).filter((value) => value.trim().length > 0).length,
+	() => Object.values(draftColumnFilters.value).filter((value) => value.trim().length > 0).length,
 );
 
 const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFilterCount.value > 0);
@@ -139,6 +142,14 @@ watch(
 	() => mainElement?.value?.scrollTo({ top: 0, behavior: 'smooth' }),
 );
 
+watch(
+	() => props.columnFilters,
+	(value) => {
+		draftColumnFilters.value = { ...value };
+	},
+	{ deep: true },
+);
+
 onMounted(() => {
 	if (typeof ResizeObserver !== 'undefined') {
 		headerResizeObserver = new ResizeObserver(syncTableGrid);
@@ -147,7 +158,10 @@ onMounted(() => {
 	scheduleTableGridSync();
 });
 
-onBeforeUnmount(() => headerResizeObserver?.disconnect());
+onBeforeUnmount(() => {
+	headerResizeObserver?.disconnect();
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+});
 
 function scheduleTableGridSync(): void {
 	void nextTick(syncTableGrid);
@@ -191,23 +205,32 @@ function removeField(field: string): void {
 }
 
 function updateColumnFilter(field: string, value: unknown): void {
-	const next = { ...props.columnFilters };
+	const next = { ...draftColumnFilters.value };
 	const normalized =
 		typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 	if (normalized.trim()) next[field] = normalized;
 	else delete next[field];
-	emit('update:columnFilters', next);
+	draftColumnFilters.value = next;
+
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+	filterApplyTimer = globalThis.setTimeout(() => {
+		emit('update:columnFilters', { ...draftColumnFilters.value });
+		filterApplyTimer = undefined;
+	}, filterApplyDelay);
 }
 
 function clearColumnFilters(): void {
 	focusedFilter.value = null;
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+	filterApplyTimer = undefined;
+	draftColumnFilters.value = {};
 	emit('update:columnFilters', {});
 }
 
 function inlineFilterControlStyle(header: TableHeader, index: number): CSSProperties {
 	const focused = focusedFilter.value === header.value;
 	const columnWidth = measuredColumnWidths.value[index] ?? header.width;
-	const width = getInlineFilterControlWidth(columnWidth, props.columnFilters[header.value] ?? '', focused);
+	const width = getInlineFilterControlWidth(columnWidth, draftColumnFilters.value[header.value] ?? '', focused);
 	const alignToEnd = shouldExpandInlineFilterLeft(index, props.tableHeaders.length);
 
 	return {
@@ -259,7 +282,7 @@ function displayValue(item: Item, field: string): unknown {
 				>
 					<span class="column-filter__label" :title="header.description || header.text">{{ header.text }}</span>
 					<column-filter-control
-						:model-value="columnFilters[header.value] || ''"
+						:model-value="draftColumnFilters[header.value] || ''"
 						:kind="columnFilterKinds[header.value] || 'unsupported'"
 						:disabled="columnFilterKinds[header.value] === 'unsupported'"
 						@update:model-value="updateColumnFilter(header.value, $event)"
@@ -293,7 +316,7 @@ function displayValue(item: Item, field: string): unknown {
 						@focusout="focusedFilter = null"
 					>
 						<column-filter-control
-							:model-value="columnFilters[header.value] || ''"
+							:model-value="draftColumnFilters[header.value] || ''"
 							:kind="columnFilterKinds[header.value] || 'unsupported'"
 							:disabled="columnFilterKinds[header.value] === 'unsupported'"
 							@update:model-value="updateColumnFilter(header.value, $event)"

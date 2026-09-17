@@ -8,6 +8,7 @@ import TableActions from './components/table-actions.vue';
 import TableExport from './components/table-export.vue';
 import TableLayout from './components/table-layout.vue';
 import TableOptions from './components/table-options.vue';
+import { useDebouncedValue } from './composables/use-debounced-value';
 import { createDirectusMetadataAccess } from './services/directus-metadata';
 import type {
 	ColumnAlignment,
@@ -40,6 +41,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		sidebar: TableExport,
 	},
 	setup(props, { emit }) {
+		const searchApplyDelay = 300;
 		const router = useRouter();
 		const route = useRoute();
 		const stores = useStores();
@@ -157,7 +159,11 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			collection.value ? buildExportFields(collection.value, fields.value, metadata) : [],
 		);
 		const columnFilterKinds = computed(() => buildColumnFilterKinds(columnPlans.value));
-		const globalSearch = computed(() => buildGlobalSearchFilterResult(columnPlans.value, search.value));
+		// The search box belongs to the Directus shell. Building a filter and
+		// refreshing both rows and counts synchronously for every key event blocks
+		// that shell from painting the character the user just entered.
+		const appliedSearch = useDebouncedValue(() => search.value, searchApplyDelay);
+		const globalSearch = computed(() => buildGlobalSearchFilterResult(columnPlans.value, appliedSearch.value));
 		const perColumnFilters = computed(() => buildColumnFiltersResult(columnPlans.value, columnFilters.value));
 		const searchStatus = computed(() => globalSearch.value.status);
 		const columnFilterIssues = computed<Record<string, ColumnFilterIssue>>(() =>
