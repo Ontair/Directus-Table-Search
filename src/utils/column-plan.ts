@@ -26,7 +26,8 @@ export function buildColumnPlans(collection: string, visibleFields: string[], me
 }
 
 export function buildColumnPlan(collection: string, key: string, metadata: MetadataAccess): ColumnPlan | null {
-	const visibleField = metadata.getField(collection, key) ?? resolveReadableFieldPath(collection, key, metadata)?.field;
+	const resolvedVisibleField = resolveReadableFieldPath(collection, key, metadata);
+	const visibleField = metadata.getField(collection, key) ?? resolvedVisibleField?.field;
 	if (!visibleField) return null;
 
 	const rootFieldName = key.split('.')[0];
@@ -43,13 +44,16 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 		if (fallback) resolved.push(fallback);
 	}
 
+	const searchLeaves = uniqueLeaves(
+		resolved
+			.filter(({ field }) => isSearchable(field))
+			.map(({ field, path }): SearchLeaf => ({ path, type: field.type })),
+	);
+
 	return {
+		...(searchLeaves.length === 0 && resolvedVisibleField ? { guardPath: resolvedVisibleField.path } : {}),
 		key,
-		searchLeaves: uniqueLeaves(
-			resolved
-				.filter(({ field }) => isSearchable(field))
-				.map(({ field, path }): SearchLeaf => ({ path, type: field.type })),
-		),
+		searchLeaves,
 	};
 }
 

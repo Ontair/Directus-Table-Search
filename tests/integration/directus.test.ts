@@ -4,7 +4,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createDirectusMetadataAccess } from '../../src/services/directus-metadata';
 import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildDisplayQuery } from '../../src/utils/display-query';
-import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
+import {
+	buildColumnFilters,
+	buildGlobalSearchFilter,
+	buildGlobalSearchFilterResult,
+	combineFilters,
+} from '../../src/utils/filter';
 import { getValueAtPath } from '../../src/utils/object';
 import { encodeTemporalFilterValue } from '../../src/utils/temporal-filter';
 
@@ -124,7 +129,7 @@ describe('Directus filter integration', () => {
 
 		expect(plans).toEqual([
 			{ key: 'title', searchLeaves: [{ path: 'title', type: 'string' }] },
-			{ key: 'password_hash', searchLeaves: [] },
+			{ guardPath: 'password_hash', key: 'password_hash', searchLeaves: [] },
 		]);
 
 		const response = await admin.getItems(collections.articles, {
@@ -140,6 +145,55 @@ describe('Directus filter integration', () => {
 			filter: { password_hash: { _icontains: 'Guide' } },
 		});
 		expect(unsupportedResponse.status).toBe(400);
+	});
+
+	it('turns a search over only unsupported fields into a safe empty result', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['password_hash'], metadata);
+		const result = buildGlobalSearchFilterResult(plans, 'Guide');
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('unsupported');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
+	});
+
+	it('rejects invalid global datetime offsets without sending an unsafe database value', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
+		const result = buildGlobalSearchFilterResult(plans, '2026-09-10T12:34:00+99:99');
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('invalid');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
+	});
+
+	it('executes rendered date and split relational display searches', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ fields: ['published_on'], term: '10.09.2026' },
+			{ fields: ['editor'], term: `${fixtures.restrictedFirstName} Tester` },
+		];
+
+		for (const testCase of cases) {
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter: buildGlobalSearchFilter(
+					buildColumnPlans(collections.articles, testCase.fields, metadata),
+					testCase.term,
+				),
+			});
+
+			expect(response.status, JSON.stringify(response.body)).toBe(200);
+			expect(response.data.map((item) => item.slug)).toContain('article-01');
+		}
 	});
 
 	it('executes exact column filters for every supported scalar family', async () => {

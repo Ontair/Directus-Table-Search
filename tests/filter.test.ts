@@ -34,8 +34,9 @@ describe('filter generation', () => {
 		expect(buildGlobalSearchFilter(plans, ' Ada ')).toEqual({
 			_or: [
 				{ title: { _icontains: 'Ada' } },
-				{ author: { first_name: { _icontains: 'Ada' } } },
-				{ author: { last_name: { _icontains: 'Ada' } } },
+				{
+					_or: [{ author: { first_name: { _icontains: 'Ada' } } }, { author: { last_name: { _icontains: 'Ada' } } }],
+				},
 			],
 		});
 	});
@@ -51,7 +52,35 @@ describe('filter generation', () => {
 		});
 	});
 
-	it('uses partial temporal matching only for column filters', () => {
+	it('matches multi-part display text across separate relational fields', () => {
+		const filter = buildColumnFilters(plans, { author: 'Ada Lovelace' });
+
+		expect(filter).toEqual({
+			_or: [
+				{ author: { first_name: { _icontains: 'Ada Lovelace' } } },
+				{ author: { last_name: { _icontains: 'Ada Lovelace' } } },
+				{
+					_and: [
+						{
+							_or: [
+								{ author: { first_name: { _icontains: 'Ada' } } },
+								{ author: { last_name: { _icontains: 'Ada' } } },
+							],
+						},
+						{
+							_or: [
+								{ author: { first_name: { _icontains: 'Lovelace' } } },
+								{ author: { last_name: { _icontains: 'Lovelace' } } },
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(buildGlobalSearchFilter(plans.slice(1, 2), 'Ada Lovelace')).toEqual(filter);
+	});
+
+	it('supports rendered and partial temporal values in global and column filters', () => {
 		const temporalPlans: ColumnPlan[] = [
 			{ key: 'published_on', searchLeaves: [{ path: 'published_on', type: 'date' }] },
 		];
@@ -59,8 +88,15 @@ describe('filter generation', () => {
 		expect(buildColumnFilters(temporalPlans, { published_on: encodeTemporalFilterValue({ day: '1' }) })).toEqual({
 			'day(published_on)': { _eq: 1 },
 		});
-		expect(buildGlobalSearchFilter(temporalPlans, '1')).toEqual({
-			_and: [{ published_on: { _null: true } }, { published_on: { _nnull: true } }],
+		expect(buildGlobalSearchFilter(temporalPlans, '2026')).toEqual({
+			'year(published_on)': { _eq: 2026 },
+		});
+		expect(buildGlobalSearchFilter(temporalPlans, '09.09.2026')).toEqual({
+			_and: [
+				{ 'day(published_on)': { _eq: 9 } },
+				{ 'month(published_on)': { _eq: 9 } },
+				{ 'year(published_on)': { _eq: 2026 } },
+			],
 		});
 	});
 
@@ -105,6 +141,9 @@ describe('filter generation', () => {
 		expect(buildLeafCondition({ path: 'owner', type: 'uuid' }, '123e4567-e89b-42d3-a456-426614174000')).toEqual({
 			owner: { _eq: '123e4567-e89b-42d3-a456-426614174000' },
 		});
+		expect(buildLeafCondition({ path: 'owner', type: 'uuid' }, '00000000-0000-0000-0000-000000000000')).toEqual({
+			owner: { _eq: '00000000-0000-0000-0000-000000000000' },
+		});
 		expect(buildLeafCondition({ path: 'created_at', type: 'dateTime' }, 'not-a-date')).toBeNull();
 	});
 
@@ -112,6 +151,20 @@ describe('filter generation', () => {
 		expect(buildGlobalSearchFilter(plans, '   ')).toBeNull();
 		expect(buildColumnFilters(plans, {})).toBeNull();
 		expect(combineFilters(null, undefined)).toBeNull();
+	});
+
+	it('keeps a search over only unsupported visible fields from becoming an unfiltered query', () => {
+		const unsupportedPlans: ColumnPlan[] = [{ guardPath: 'payload', key: 'payload', searchLeaves: [] }];
+		const expected = { _and: [{ payload: { _null: true } }, { payload: { _nnull: true } }] };
+
+		expect(buildGlobalSearchFilterResult(unsupportedPlans, 'anything')).toEqual({
+			filter: expected,
+			status: 'unsupported',
+		});
+		expect(buildColumnFiltersResult(unsupportedPlans, { payload: 'anything' })).toEqual({
+			filter: expected,
+			status: 'unsupported',
+		});
 	});
 
 	it('turns active invalid exact values into a safe no-match filter', () => {
@@ -140,5 +193,10 @@ describe('filter generation', () => {
 		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59Z')).toEqual({
 			starts_at: { _eq: '2026-01-01T23:59Z' },
 		});
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+23:59')).toEqual({
+			starts_at: { _eq: '2026-01-01T23:59+23:59' },
+		});
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+24:00')).toBeNull();
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+01:60')).toBeNull();
 	});
 });

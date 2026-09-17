@@ -4,6 +4,7 @@ export type FilterNode = Record<string, unknown>;
 
 export type FilterBuildResult =
 	| { filter: null; status: 'empty' | 'unsupported' }
+	| { filter: FilterNode; status: 'unsupported' }
 	| { filter: FilterNode; status: 'invalid' | 'valid' };
 
 export type ShowSelect = 'multiple' | 'none' | 'one';
@@ -62,6 +63,7 @@ export interface SearchLeaf {
 }
 
 export interface ColumnPlan {
+	guardPath?: string;
 	key: string;
 	searchLeaves: SearchLeaf[];
 }

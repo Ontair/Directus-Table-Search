@@ -14,11 +14,14 @@ export function buildGlobalSearchFilterResult(
 	if (!term) return { filter: null, status: 'empty' };
 
 	const leaves = uniqueLeaves(plans.flatMap((plan) => plan.searchLeaves));
-	const conditions = leaves.map((leaf) => buildLeafCondition(leaf, term)).filter(isFilterNode);
+	const conditions = plans.map((plan) => buildPlanCondition(plan, term, false)).filter(isFilterNode);
 	const filter = combineWithOr(conditions);
 
 	if (filter) return { filter, status: 'valid' };
 	if (leaves[0]) return { filter: impossibleLeafCondition(leaves[0]), status: 'invalid' };
+
+	const guardPath = plans.find(({ guardPath }) => guardPath)?.guardPath;
+	if (guardPath) return { filter: impossiblePathCondition(guardPath), status: 'unsupported' };
 	return { filter: null, status: 'unsupported' };
 }
 
@@ -31,6 +34,7 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 	let hasActiveValue = false;
 	let hasInvalidValue = false;
 	let hasUnsupportedValue = false;
+	let needsFallbackGuard = false;
 
 	for (const plan of plans) {
 		const term = values[plan.key]?.trim();
@@ -39,12 +43,12 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 
 		if (plan.searchLeaves.length === 0) {
 			hasUnsupportedValue = true;
+			if (plan.guardPath) conditions.push(impossiblePathCondition(plan.guardPath));
+			else needsFallbackGuard = true;
 			continue;
 		}
 
-		const columnCondition = combineWithOr(
-			plan.searchLeaves.map((leaf) => buildColumnLeafCondition(leaf, term)).filter(isFilterNode),
-		);
+		const columnCondition = buildPlanCondition(plan, term, true);
 		if (columnCondition) conditions.push(columnCondition);
 		else {
 			hasInvalidValue = true;
@@ -54,7 +58,7 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 
 	if (!hasActiveValue) return { filter: null, status: 'empty' };
 
-	if (hasUnsupportedValue) {
+	if (needsFallbackGuard) {
 		const fallbackLeaf = plans.flatMap((plan) => plan.searchLeaves)[0];
 		if (fallbackLeaf) {
 			hasInvalidValue = true;
@@ -63,8 +67,47 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 	}
 
 	const filter = combineWithAnd(conditions);
-	if (filter) return { filter, status: hasInvalidValue ? 'invalid' : 'valid' };
+	if (filter) {
+		return { filter, status: hasUnsupportedValue ? 'unsupported' : hasInvalidValue ? 'invalid' : 'valid' };
+	}
 	return { filter: null, status: 'unsupported' };
+}
+
+function buildPlanCondition(plan: ColumnPlan, term: string, partialTemporal: boolean): FilterNode | null {
+	const wholeValueConditions = plan.searchLeaves
+		.map((leaf) => (partialTemporal ? buildColumnLeafCondition(leaf, term) : buildGlobalLeafCondition(leaf, term)))
+		.filter(isFilterNode);
+	const tokenizedTextCondition = buildTokenizedTextCondition(plan.searchLeaves, term);
+
+	return combineWithOr([...wholeValueConditions, ...(tokenizedTextCondition ? [tokenizedTextCondition] : [])]);
+}
+
+function buildGlobalLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
+	const kind = getSearchValueKind(leaf.type);
+	if (kind !== 'date' && kind !== 'dateTime' && kind !== 'time') return buildLeafCondition(leaf, term);
+
+	const exactCondition = buildLeafCondition(leaf, term);
+	if (exactCondition) return exactCondition;
+	if (!/^[\d./:\-T\s]+$/iu.test(term)) return null;
+
+	const structuredYear = /^\d{4}$/.test(term) ? `@t:${term},,,,,` : term;
+	return buildPartialTemporalCondition(leaf, structuredYear);
+}
+
+function buildTokenizedTextCondition(leaves: SearchLeaf[], term: string): FilterNode | null {
+	const tokens = term.split(/\s+/u).filter(Boolean);
+	if (tokens.length < 2) return null;
+
+	const textLeaves = uniqueLeaves(leaves).filter((leaf) => getSearchValueKind(leaf.type) === 'text');
+	if (textLeaves.length === 0) return null;
+
+	return combineWithAnd(
+		tokens
+			.map((token) =>
+				combineWithOr(textLeaves.map((leaf) => nestPath(leaf.path, { _icontains: token })).filter(isFilterNode)),
+			)
+			.filter(isFilterNode),
+	);
 }
 
 function buildColumnLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
@@ -151,15 +194,20 @@ function parseBoolean(term: string): boolean | null {
 }
 
 function isUuid(value: string): boolean {
-	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+	return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function isDateValue(type: string, value: string): boolean {
 	if (type === 'date') return isValidDate(value);
 	if (type === 'time') return isValidTime(value);
 
-	const match = value.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(?:Z|[+-]\d{2}:\d{2})?$/);
-	return match !== null && isValidDate(match[1]!) && isValidTime(match[2]!);
+	const match = value.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|([+-])(\d{2}):(\d{2}))?$/);
+	if (match === null || !isValidDate(match[1]!) || !isValidTime(match[2]!)) return false;
+	if (!match[3] || match[3] === 'Z') return true;
+
+	const offsetHour = Number(match[5]);
+	const offsetMinute = Number(match[6]);
+	return offsetHour <= 23 && offsetMinute <= 59;
 }
 
 function isValidDate(value: string): boolean {
@@ -185,9 +233,11 @@ function isValidTime(value: string): boolean {
 }
 
 function impossibleLeafCondition(leaf: SearchLeaf): FilterNode {
-	return {
-		_and: [nestPath(leaf.path, { _null: true }), nestPath(leaf.path, { _nnull: true })],
-	};
+	return impossiblePathCondition(leaf.path);
+}
+
+function impossiblePathCondition(path: string): FilterNode {
+	return { _and: [nestPath(path, { _null: true }), nestPath(path, { _nnull: true })] };
 }
 
 function uniqueLeaves(leaves: SearchLeaf[]): SearchLeaf[] {

@@ -42,7 +42,7 @@ The extension converts the Data Studio search term into a Directus filter:
 
 - text-like fields use `_icontains`;
 - numeric and boolean fields participate when the term can be converted safely;
-- date/time fields use exact matching in global search, while their column filters use Directus date-part functions so independently populated components can be combined safely;
+- date/time fields accept exact storage values, rendered `DD.MM.YYYY` values, and a four-digit year in global search; their column filters additionally use Directus date-part functions so independently populated components can be combined safely;
 - unsupported values such as JSON, binary, geometry, and presentation-only aliases are not included.
 
 For example, with visible `title` and relational `author` columns, where `author` renders `first_name` and `last_name`, a search for `Ada` becomes conceptually:
@@ -94,4 +94,4 @@ The domain logic under `src/utils/` is framework-independent and covered by unit
 
 - Dynamic M2A paths are skipped because a single visible M2A column can target collections with incompatible field sets and filter scopes.
 - A custom display that does not declare its required `fields` can only be searched through the visible field value itself.
-- Global date/time search remains exact. Component-based date/time matching is intentionally scoped to column filters, where every segment has an unambiguous meaning.
+- Global date/time search intentionally treats an unseparated four-digit number as a year. Other partial components remain scoped to column filters, where their meaning is unambiguous.

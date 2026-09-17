@@ -81,8 +81,8 @@ describe('buildColumnPlans', () => {
 		};
 
 		expect(buildColumnPlans('articles', ['password_hash', 'binary_payload'], metadata)).toEqual([
-			{ key: 'password_hash', searchLeaves: [] },
-			{ key: 'binary_payload', searchLeaves: [] },
+			{ guardPath: 'password_hash', key: 'password_hash', searchLeaves: [] },
+			{ guardPath: 'binary_payload', key: 'binary_payload', searchLeaves: [] },
 		]);
 	});
 });
