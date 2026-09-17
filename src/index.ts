@@ -1,7 +1,7 @@
 import { defineLayout, useCollection, useExtensions, useItems, useStores, useSync } from '@directus/extensions-sdk';
 import { isPublishedVersionKey } from '@directus/constants';
 import type { Field, Filter, Item } from '@directus/types';
-import { computed, ref, toRefs, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import TableActions from './components/table-actions.vue';
@@ -27,6 +27,7 @@ import { isFieldAllowed } from './utils/field-permission';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
 import { getValueAtPath } from './utils/object';
 import { planRowInteraction } from './utils/row-interaction';
+import { getTableRowHeight } from './utils/table-row-height';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
 	id: 'table-search',
@@ -45,6 +46,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const fieldsStore = stores.useFieldsStore();
 		const relationsStore = stores.useRelationsStore();
 		const permissionsStore = stores.usePermissionsStore();
+		const serverStore = typeof stores.useServerStore === 'function' ? stores.useServerStore() : null;
 		const { displays } = useExtensions();
 
 		const selection = useSync(props, 'selection', emit);
@@ -170,6 +172,17 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const versionKey = computed(() => (props.selectMode ? null : routeVersionKey.value));
 		const isVersion = computed(() => Boolean(versionKey.value && !isPublishedVersionKey(versionKey.value)));
 
+		const itemState = useItems(collection, {
+			alias: queryAlias,
+			fields: queryFields,
+			filter: effectiveFilter,
+			filterSystem,
+			limit,
+			page,
+			search: disabledNativeSearch,
+			sort,
+			version: versionKey,
+		});
 		const {
 			changeManualSort,
 			error,
@@ -181,17 +194,8 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			loading,
 			totalCount,
 			totalPages,
-		} = useItems(collection, {
-			alias: queryAlias,
-			fields: queryFields,
-			filter: effectiveFilter,
-			filterSystem,
-			limit,
-			page,
-			search: disabledNativeSearch,
-			sort,
-			version: versionKey,
-		});
+		} = itemState;
+		const loadingItemCount = itemState.loadingItemCount ?? ref(false);
 		const visibleItems = computed<Item[]>(() => {
 			if (!isVersion.value) return items.value;
 
@@ -207,6 +211,9 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 
 		const localWidths = ref<Record<string, number>>({});
 		let widthsTimer: ReturnType<typeof setTimeout> | undefined;
+		onBeforeUnmount(() => {
+			if (widthsTimer) clearTimeout(widthsTimer);
+		});
 
 		watch(
 			() => layoutOptions.value,
@@ -268,11 +275,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			return current.startsWith('-') ? { by: current.slice(1), desc: true } : { by: current, desc: false };
 		});
 
-		const tableRowHeight = computed(() => {
-			if (tableSpacing.value === 'compact') return 32;
-			if (tableSpacing.value === 'comfortable') return 64;
-			return 48;
-		});
+		const tableRowHeight = computed(() => getTableRowHeight(tableSpacing.value, serverStore?.info?.version));
 
 		const sortAllowed = computed(() => {
 			if (!sortField.value || versionKey.value || !permissionsStore.hasPermission(collection.value, 'update')) {
@@ -308,6 +311,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			items: visibleItems,
 			limit,
 			loading,
+			loadingItemCount,
 			onAlignChange,
 			onRowClick,
 			onSortChange,

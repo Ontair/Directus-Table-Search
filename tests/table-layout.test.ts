@@ -53,6 +53,7 @@ function mountLayout(overrides: Record<string, unknown> = {}) {
 				'v-list-item-icon': true,
 				'v-menu': true,
 				'v-pagination': { props: ['length', 'modelValue'], template: '<div class="pagination-control" />' },
+				'v-skeleton-loader': { template: '<div class="pagination-loading" />' },
 				'v-table': { template: '<div class="table-stub"><slot name="footer" /></div>' },
 				'v-select': {
 					props: ['modelValue', 'items'],
@@ -94,5 +95,18 @@ describe('TableLayout pagination', () => {
 		expect(wrapper.get('.pagination-control')).toBeDefined();
 		expect(wrapper.emitted('update:limit')).toEqual([[1000]]);
 		expect(toPage).not.toHaveBeenCalled();
+	});
+
+	it('keeps fetched rows visible while the item count is still loading', () => {
+		const { wrapper } = mountLayout({
+			itemCount: null,
+			items: Array.from({ length: 25 }, (_, index) => ({ id: index + 1 })),
+			loadingItemCount: true,
+			totalPages: 0,
+		});
+
+		expect(wrapper.get('.table-stub')).toBeDefined();
+		expect(wrapper.get('.pagination-loading')).toBeDefined();
+		expect(wrapper.get('.per-page')).toBeDefined();
 	});
 });

@@ -37,7 +37,7 @@ let fixtures: FixtureIds;
 
 describe('Directus filter integration', () => {
 	beforeAll(async () => {
-		admin = await DirectusClient.login(adminEmail, adminPassword);
+		admin = await DirectusClient.login(adminEmail, adminPassword, true);
 		fixtures = await ensureFixture(admin);
 		if (testRestrictedPermissions) {
 			restricted = await DirectusClient.login(restrictedEmail, restrictedPassword);
@@ -398,9 +398,12 @@ interface ApiResponse<T = Record<string, any>> {
 }
 
 class DirectusClient {
-	private constructor(private readonly token: string) {}
+	private constructor(
+		private readonly token: string,
+		readonly isAdmin: boolean,
+	) {}
 
-	static async login(email: string, password: string): Promise<DirectusClient> {
+	static async login(email: string, password: string, isAdmin = false): Promise<DirectusClient> {
 		const response = await fetch(`${baseUrl}/auth/login`, {
 			body: JSON.stringify({ email, password }),
 			headers: { 'content-type': 'application/json' },
@@ -408,7 +411,7 @@ class DirectusClient {
 		});
 		const body = await response.json();
 		if (!response.ok) throw new Error(`Directus login failed (${response.status}): ${JSON.stringify(body)}`);
-		return new DirectusClient(body.data.access_token as string);
+		return new DirectusClient(body.data.access_token as string, isAdmin);
 	}
 
 	async request<T = Record<string, any>>(
@@ -835,7 +838,7 @@ async function loadMetadata(client: DirectusClient) {
 			getPermission: (collection, action) => permissions[collection]?.[action] ?? null,
 			hasPermission: (collection, action) => {
 				const permission = permissions[collection]?.[action];
-				return permission ? permission.access !== 'none' : permissionsResponse.status === 200;
+				return permission ? permission.access !== 'none' : client.isAdmin;
 			},
 		},
 		relationsStore: {

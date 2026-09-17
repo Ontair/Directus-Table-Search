@@ -261,7 +261,7 @@ function displayValue(item: Item, field: string): unknown {
 		</section>
 
 		<v-table
-			v-if="loading || (itemCount && itemCount > 0 && !error)"
+			v-if="loading || (items.length > 0 && !error)"
 			ref="table"
 			v-model="selectionWritable"
 			v-model:headers="tableHeadersWritable"
@@ -361,8 +361,13 @@ function displayValue(item: Item, field: string): unknown {
 			<template #footer>
 				<div class="footer">
 					<div class="pagination">
+						<v-skeleton-loader
+							v-if="!loading && loadingItemCount && items.length === limit"
+							class="pagination-loading"
+							type="text"
+						/>
 						<v-pagination
-							v-if="totalPages > 1"
+							v-else-if="totalPages > 1"
 							:length="totalPages"
 							:total-visible="7"
 							show-first-last

@@ -95,6 +95,7 @@ export interface LayoutComponentProps {
 	items: Item[];
 	limit: number;
 	loading: boolean;
+	loadingItemCount?: boolean;
 	onAlignChange: (field: string, align: ColumnAlignment) => void;
 	onRowClick: (payload: { event: PointerEvent; item: Item }) => void;
 	onSortChange: (sort: TableSort | null) => void;
