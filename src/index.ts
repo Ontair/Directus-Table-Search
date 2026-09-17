@@ -1,7 +1,8 @@
 import { defineLayout, useCollection, useExtensions, useItems, useStores, useSync } from '@directus/extensions-sdk';
+import { isPublishedVersionKey } from '@directus/constants';
 import type { Field, Filter, Item } from '@directus/types';
 import { computed, ref, toRefs, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import TableActions from './components/table-actions.vue';
 import TableLayout from './components/table-layout.vue';
@@ -20,7 +21,9 @@ import { buildColumnPlans } from './utils/column-plan';
 import { getDefaultDisplay } from './utils/default-display';
 import { buildDisplayQuery } from './utils/display-query';
 import { buildColumnFilterKinds } from './utils/filter-control';
+import { isFieldAllowed } from './utils/field-permission';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
+import { planRowInteraction } from './utils/row-interaction';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
 	id: 'table-search',
@@ -34,6 +37,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 	},
 	setup(props, { emit }) {
 		const router = useRouter();
+		const route = useRoute();
 		const stores = useStores();
 		const fieldsStore = stores.useFieldsStore();
 		const relationsStore = stores.useRelationsStore();
@@ -149,6 +153,12 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 				) as Filter | null,
 		);
 		const disabledNativeSearch = ref<string | null>(null);
+		const routeVersionKey = computed(() => {
+			const version = route.query.version;
+			return Array.isArray(version) ? (version[0] ?? null) : (version ?? null);
+		});
+		const versionKey = computed(() => (props.selectMode ? null : routeVersionKey.value));
+		const isVersion = computed(() => Boolean(versionKey.value && !isPublishedVersionKey(versionKey.value)));
 
 		const {
 			changeManualSort,
@@ -170,7 +180,20 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			page,
 			search: disabledNativeSearch,
 			sort,
+			version: versionKey,
 		});
+		const visibleItems = computed<Item[]>(() => {
+			if (!isVersion.value) return items.value;
+
+			return items.value.map((item) => ({
+				...item,
+				_versionId:
+					item.$meta && typeof item.$meta === 'object'
+						? ((item.$meta as Record<string, unknown>).version_id ?? null)
+						: null,
+			}));
+		});
+		const itemKey = computed(() => (isVersion.value ? '_versionId' : primaryKeyField.value?.field));
 
 		const localWidths = ref<Record<string, number>>({});
 		let widthsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -241,9 +264,13 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			return 48;
 		});
 
-		const sortAllowed = computed(
-			() => Boolean(sortField.value) && permissionsStore.hasPermission(collection.value, 'update'),
-		);
+		const sortAllowed = computed(() => {
+			if (!sortField.value || versionKey.value || !permissionsStore.hasPermission(collection.value, 'update')) {
+				return false;
+			}
+
+			return isFieldAllowed(permissionsStore.getPermission(collection.value, 'update'), sortField.value);
+		});
 
 		const showingCount = computed(() => {
 			if (!itemCount.value) return undefined;
@@ -265,8 +292,9 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			fieldsInCollection,
 			info,
 			itemCount,
+			itemKey,
 			itemValuePaths,
-			items,
+			items: visibleItems,
 			limit,
 			loading,
 			onAlignChange,
@@ -295,11 +323,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		function getFieldDescription(key: string): string | null {
 			if (!key.includes('.')) return null;
 
-			return key
-				.split('.')
-				.map((_, index, parts) => fieldsStore.getField(collection.value, parts.slice(0, index + 1).join('.'))?.name)
-				.filter(Boolean)
-				.join(' → ');
+			return key.split('.').filter(Boolean).join(' → ');
 		}
 
 		function onSortChange(next: TableSort | null): void {
@@ -313,23 +337,40 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			};
 		}
 
-		function onRowClick({ item }: { event: PointerEvent; item: Item }): void {
-			const primaryKey = primaryKeyField.value?.field;
-			if (!primaryKey || !collection.value) return;
-			const key = item[primaryKey] as number | string | undefined;
-			if (key === undefined) return;
+		function onRowClick({ event, item }: { event: PointerEvent; item: Item }): void {
+			if (!collection.value) return;
+			const interaction = planRowInteraction({
+				collection: collection.value,
+				item,
+				primaryKeyField: primaryKeyField.value?.field,
+				readonly: props.readonly,
+				selection: selection.value,
+				selectMode: props.selectMode,
+				versionKey: versionKey.value,
+			});
 
-			if (props.selectMode) {
-				selection.value = selection.value.includes(key)
-					? selection.value.filter((selected) => selected !== key)
-					: [...selection.value, key];
+			if (interaction.type === 'selection') {
+				selection.value = interaction.selection;
 				return;
 			}
 
-			void router.push(`/content/${encodeURIComponent(collection.value)}/${encodeURIComponent(String(key))}`);
+			if (interaction.type !== 'navigate') return;
+			if (event.ctrlKey || event.metaKey) window.open(router.resolve(interaction.route).href, '_blank', 'noopener');
+			else void router.push(interaction.route);
 		}
 
 		function selectAll(): void {
+			if (isVersion.value) {
+				selection.value = items.value
+					.map((item) =>
+						item.$meta && typeof item.$meta === 'object'
+							? (item.$meta as Record<string, unknown>).version_id
+							: undefined,
+					)
+					.filter((id): id is string => typeof id === 'string' && id.length > 0);
+				return;
+			}
+
 			const primaryKey = primaryKeyField.value?.field;
 			if (!primaryKey) return;
 			selection.value = items.value.map((item) => item[primaryKey] as number | string);
@@ -337,8 +378,8 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 
 		function refresh(): void {
 			void getItems();
-			void getItemCount();
-			void getTotalCount();
+			void getItemCount(true);
+			void getTotalCount(true);
 		}
 
 		async function resetPresetAndRefresh(): Promise<void> {

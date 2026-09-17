@@ -1,6 +1,7 @@
 import type { Field, Relation } from '@directus/types';
 
 import type { MetadataAccess } from '../types';
+import { isFieldAllowed } from '../utils/field-permission';
 
 interface FieldsStore {
 	getField(collection: string, field: string): Field | null;
@@ -53,11 +54,7 @@ export function createDirectusMetadataAccess(dependencies: MetadataDependencies)
 		if (!permissionsStore.hasPermission(collection, 'read')) return false;
 
 		const permission = permissionsStore.getPermission(collection, 'read');
-		if (!permission) return true;
-		if (permission.access === 'none') return false;
-		if (!Array.isArray(permission.fields) || permission.fields.length === 0) return true;
-
-		return permission.fields.includes('*') || permission.fields.includes(field);
+		return isFieldAllowed(permission, field);
 	}
 
 	function getDisplayFields(field: Field): string[] {

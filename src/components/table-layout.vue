@@ -274,7 +274,7 @@ function displayValue(item: Item, field: string): unknown {
 			:items="items"
 			:loading="loading"
 			:row-height="tableRowHeight"
-			:item-key="primaryKeyField?.field"
+			:item-key="itemKey || primaryKeyField?.field"
 			:show-manual-sort="sortAllowed"
 			:manual-sort-key="sortField"
 			allow-header-reorder

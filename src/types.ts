@@ -84,6 +84,7 @@ export interface LayoutComponentProps {
 	error?: unknown;
 	fields: string[];
 	itemCount?: number | null;
+	itemKey?: string;
 	itemValuePaths: Record<string, string>;
 	items: Item[];
 	limit: number;
