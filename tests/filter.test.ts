@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ColumnPlan } from '../src/types';
+import { buildColumnPlans } from '../src/utils/column-plan';
 import {
 	buildColumnFilters,
 	buildColumnFiltersResult,
@@ -10,6 +11,7 @@ import {
 	combineFilters,
 } from '../src/utils/filter';
 import { encodeTemporalFilterValue } from '../src/utils/temporal-filter';
+import { createSchema } from './fixtures/schema';
 
 const plans: ColumnPlan[] = [
 	{
@@ -151,6 +153,34 @@ describe('filter generation', () => {
 		expect(buildGlobalSearchFilter(plans, '   ')).toBeNull();
 		expect(buildColumnFilters(plans, {})).toBeNull();
 		expect(combineFilters(null, undefined)).toBeNull();
+	});
+
+	it('keeps a search over an unreadable visible column from becoming an unfiltered query', () => {
+		const metadata = createSchema({ denied: ['directus_users.email'] });
+		const plans = buildColumnPlans('articles', ['editor.email'], metadata);
+		const impossible = { _and: [{ id: { _null: true } }, { id: { _nnull: true } }] };
+
+		expect(buildGlobalSearchFilterResult(plans, 'anything')).toEqual({ filter: impossible, status: 'unsupported' });
+		expect(buildColumnFiltersResult(plans, { 'editor.email': 'anything' })).toEqual({
+			filter: impossible,
+			status: 'unsupported',
+		});
+	});
+
+	it('still narrows a readable column when a sibling column is unreadable', () => {
+		const metadata = createSchema({ denied: ['directus_users.email'] });
+		const plans = buildColumnPlans('articles', ['title', 'editor.email'], metadata);
+
+		expect(buildGlobalSearchFilterResult(plans, 'guide')).toEqual({
+			filter: { title: { _icontains: 'guide' } },
+			status: 'valid',
+		});
+		expect(buildColumnFiltersResult(plans, { title: 'guide', 'editor.email': 'anything' })).toEqual({
+			filter: {
+				_and: [{ title: { _icontains: 'guide' } }, { _and: [{ id: { _null: true } }, { id: { _nnull: true } }] }],
+			},
+			status: 'unsupported',
+		});
 	});
 
 	it('keeps a search over only unsupported visible fields from becoming an unfiltered query', () => {

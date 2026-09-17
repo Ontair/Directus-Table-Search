@@ -85,4 +85,34 @@ describe('buildColumnPlans', () => {
 			{ guardPath: 'binary_payload', key: 'binary_payload', searchLeaves: [] },
 		]);
 	});
+	it('guards a column whose nested field the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['directus_users.email'] });
+
+		expect(buildColumnPlans('articles', ['editor.email'], metadata)).toEqual([
+			{ guardPath: 'id', key: 'editor.email', searchLeaves: [] },
+		]);
+	});
+
+	it('guards a column whose root field the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['articles.editor'] });
+
+		expect(buildColumnPlans('articles', ['editor'], metadata)).toEqual([
+			{ guardPath: 'id', key: 'editor', searchLeaves: [] },
+		]);
+	});
+
+	it('prefers the resolved column path over the primary key as the guard anchor', () => {
+		const baseMetadata = createSchema();
+		const metadata = {
+			...baseMetadata,
+			getField: (collection: string, fieldName: string) =>
+				collection === 'articles' && fieldName === 'payload'
+					? field('articles', fieldName, 'json')
+					: baseMetadata.getField(collection, fieldName),
+		};
+
+		expect(buildColumnPlans('articles', ['payload'], metadata)).toEqual([
+			{ guardPath: 'payload', key: 'payload', searchLeaves: [] },
+		]);
+	});
 });

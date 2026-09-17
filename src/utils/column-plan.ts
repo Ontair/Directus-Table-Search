@@ -1,6 +1,6 @@
 import type { Field } from '@directus/types';
 
-import type { ColumnPlan, MetadataAccess, SearchLeaf } from '../types';
+import type { ColumnPlan, MetadataAccess, ResolvedFieldPath, SearchLeaf } from '../types';
 import { getReadableDisplayPaths } from './display-path';
 import { resolveReadableFieldPath } from './field-path';
 
@@ -31,7 +31,9 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 	if (!visibleField) return null;
 
 	const rootFieldName = key.split('.')[0];
-	if (!rootFieldName || !metadata.canReadField(collection, rootFieldName)) return null;
+	if (!rootFieldName || !metadata.canReadField(collection, rootFieldName)) {
+		return buildGuardOnlyPlan(collection, key, metadata);
+	}
 
 	const isRootRelation = !key.includes('.') && metadata.getRelationsForField(collection, key).length > 0;
 	const candidates = isRootRelation ? getRelationalDisplayPaths(collection, key, visibleField, metadata) : [key];
@@ -50,11 +52,34 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 			.map(({ field, path }): SearchLeaf => ({ path, type: field.type })),
 	);
 
+	const guardPath = searchLeaves.length === 0 ? getGuardPath(collection, resolvedVisibleField, metadata) : null;
+
 	return {
-		...(searchLeaves.length === 0 && resolvedVisibleField ? { guardPath: resolvedVisibleField.path } : {}),
+		...(guardPath ? { guardPath } : {}),
 		key,
 		searchLeaves,
 	};
+}
+
+function buildGuardOnlyPlan(collection: string, key: string, metadata: MetadataAccess): ColumnPlan {
+	const guardPath = getGuardPath(collection, null, metadata);
+	return { ...(guardPath ? { guardPath } : {}), key, searchLeaves: [] };
+}
+
+/**
+ * A column without searchable leaves still has to express "this term cannot
+ * match"; without an anchor the generated query would carry no condition at
+ * all and expose every row. The resolved column path is the most precise
+ * anchor, but it is missing whenever that path is itself unreadable or
+ * dynamic, so the collection's primary key takes over: a role that may read
+ * the collection may always read it.
+ */
+function getGuardPath(
+	collection: string,
+	resolved: ResolvedFieldPath | null | undefined,
+	metadata: MetadataAccess,
+): string | null {
+	return resolved?.path ?? metadata.getPrimaryKeyField(collection)?.field ?? null;
 }
 
 function getRelationalDisplayPaths(collection: string, key: string, field: Field, metadata: MetadataAccess): string[] {
