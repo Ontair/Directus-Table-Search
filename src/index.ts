@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import TableActions from './components/table-actions.vue';
+import TableExport from './components/table-export.vue';
 import TableLayout from './components/table-layout.vue';
 import TableOptions from './components/table-options.vue';
 import { createDirectusMetadataAccess } from './services/directus-metadata';
@@ -19,13 +20,11 @@ import type {
 } from './types';
 import { pruneColumnFilters } from './utils/column-filter-state';
 import { buildColumnPlans } from './utils/column-plan';
-import { buildCsvDocument, createCsvFilename, downloadCsvFile } from './utils/csv';
 import { getDefaultDisplay } from './utils/default-display';
-import { buildDisplayQuery } from './utils/display-query';
+import { buildDisplayQuery, buildExportFields } from './utils/display-query';
 import { buildColumnFilterKinds } from './utils/filter-control';
 import { isFieldAllowed } from './utils/field-permission';
 import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
-import { getValueAtPath } from './utils/object';
 import { planRowInteraction } from './utils/row-interaction';
 import { getTableRowHeight } from './utils/table-row-height';
 
@@ -37,7 +36,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 	slots: {
 		actions: TableActions,
 		options: TableOptions,
-		sidebar: () => null,
+		sidebar: TableExport,
 	},
 	setup(props, { emit }) {
 		const router = useRouter();
@@ -153,6 +152,9 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const queryFields = computed(() => displayQuery.value.fields);
 		const queryAlias = computed(() => displayQuery.value.alias);
 		const itemValuePaths = computed(() => displayQuery.value.valuePaths);
+		const exportFields = computed(() =>
+			collection.value ? buildExportFields(collection.value, fields.value, metadata) : [],
+		);
 		const columnFilterKinds = computed(() => buildColumnFilterKinds(columnPlans.value));
 		const globalSearchFilter = computed(() => buildGlobalSearchFilter(columnPlans.value, search.value));
 		const perColumnFilter = computed(() => buildColumnFilters(columnPlans.value, columnFilters.value));
@@ -297,11 +299,13 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		return {
 			activeFields,
 			changeManualSort,
+			collection,
 			columnFilterMode,
 			columnFilterKinds,
 			columnFilters,
-			download,
+			effectiveFilter,
 			error,
+			exportFields,
 			fields,
 			fieldsInCollection,
 			info,
@@ -320,8 +324,10 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			refresh,
 			resetPresetAndRefresh,
 			selectAll,
+			selection,
 			showColumnFilters,
 			showingCount,
+			sort,
 			sortAllowed,
 			sortField,
 			tableHeaders,
@@ -333,6 +339,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			},
 			totalCount,
 			totalPages,
+			versionKey,
 		};
 
 		function getFieldDescription(key: string): string | null {
@@ -395,42 +402,6 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			void getItems();
 			void getItemCount(true);
 			void getTotalCount(true);
-		}
-
-		function download(): void {
-			if (!collection.value) return;
-
-			const headers = tableHeaders.value;
-			const rows = items.value.map((item) =>
-				headers.map((header) => {
-					const value = getValueAtPath(
-						item as Record<string, unknown>,
-						itemValuePaths.value[header.value] ?? header.value,
-					);
-					if (value === null || value === undefined) return value;
-
-					const display = displays.value.find(({ id }) => id === header.field.display);
-					if (!display?.handler) return value;
-
-					try {
-						return display.handler(value, header.field.displayOptions ?? {}, {
-							collection: header.field.collection,
-							field: fieldsStore.getField(header.field.collection, header.field.field) ?? undefined,
-							interfaceOptions: header.field.interfaceOptions ?? {},
-						});
-					} catch {
-						return value;
-					}
-				}),
-			);
-
-			downloadCsvFile(
-				createCsvFilename(collection.value),
-				buildCsvDocument(
-					headers.map(({ text }) => text),
-					rows,
-				),
-			);
 		}
 
 		async function resetPresetAndRefresh(): Promise<void> {

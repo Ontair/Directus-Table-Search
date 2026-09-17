@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDisplayQuery } from '../src/utils/display-query';
+import { buildDisplayQuery, buildExportFields } from '../src/utils/display-query';
 import { createSchema } from './fixtures/schema';
 
 describe('buildDisplayQuery', () => {
@@ -69,5 +69,31 @@ describe('buildDisplayQuery', () => {
 
 		expect(query.fields).toEqual(['author']);
 		expect(query.valuePaths).toEqual({ author: 'author' });
+	});
+});
+
+describe('buildExportFields', () => {
+	it('projects the readable display paths without alias indirection', () => {
+		expect(buildExportFields('articles', ['title', 'author'], createSchema())).toEqual([
+			'title',
+			'author.first_name',
+			'author.last_name',
+			'author.id',
+		]);
+	});
+
+	it('keeps a shared relational root readable instead of aliasing it', () => {
+		expect(buildExportFields('articles', ['tags.tags_id.name', 'tags.tags_id.id'], createSchema())).toEqual([
+			'tags.tags_id.name',
+			'tags.tags_id.id',
+		]);
+	});
+
+	it('never exports a display field that the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['directus_users.avatar', 'directus_users.email'] });
+		const fields = buildExportFields('articles', ['title', 'editor'], metadata);
+
+		expect(fields).not.toContain('editor.email');
+		expect(fields).not.toContain('editor.avatar.id');
 	});
 });

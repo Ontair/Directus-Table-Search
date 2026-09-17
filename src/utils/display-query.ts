@@ -38,6 +38,15 @@ export function buildDisplayQuery(collection: string, visibleFields: string[], m
 	};
 }
 
+/**
+ * Export projections reuse the readable display paths but skip the alias
+ * indirection: Directus flattens the exported rows itself, and an exported
+ * column stays recognizable only under its real field path.
+ */
+export function buildExportFields(collection: string, visibleFields: string[], metadata: MetadataAccess): string[] {
+	return [...new Set(visibleFields.flatMap((key) => getReadableDisplayPaths(collection, key, metadata)))];
+}
+
 function countRootFields(fields: string[]): Record<string, number> {
 	return fields.reduce<Record<string, number>>((counts, field) => {
 		const root = getRootField(field);

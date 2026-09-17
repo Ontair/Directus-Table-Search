@@ -13,6 +13,7 @@ A schema-independent Directus layout extension for searching and filtering the v
 - Existing user and system filters stay active and are combined with the generated filters.
 - Read permissions are checked for every field and relation hop before a query or filter path is generated.
 - Native Directus pagination, sorting, selection, field reordering, column resizing, displays, and manual sorting remain available.
+- A layout-owned export sidebar downloads exactly the rows the table shows, including the column filters and the visible-column search.
 
 ## Compatibility
 
@@ -58,6 +59,22 @@ For example, with visible `title` and relational `author` columns, where `author
 ```
 
 This generated expression is combined with the active Directus filter using `_and`.
+
+## Export
+
+The layout contributes its own **Export Table Search** panel to the sidebar. It
+describes the same query the list request uses — projection, generated filter,
+sort, and content version — and hands it to Directus through the documented
+`export` query parameter, so Directus renders the file itself and applies the
+same permissions as the table. CSV, JSON, XML, and YAML are available, for all
+matching items, the current page, or the current selection.
+
+Directus' built-in **Export Items** panel is rendered by the collection route
+and receives only the host filter and search, so it cannot see this layout's
+column filters or its visible-column search. A layout cannot change those props
+(`LayoutContext` emits `update:selection`, `update:layoutOptions`, and
+`update:layoutQuery` only), so use the layout panel whenever the generated
+filters are active.
 
 ## Development
 
