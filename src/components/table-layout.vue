@@ -60,6 +60,30 @@ const activeFilterCount = computed(
 
 const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFilterCount.value > 0);
 
+/**
+ * A generated filter that cannot express the requested term matches nothing on
+ * purpose. Without an explanation that outcome is indistinguishable from a
+ * collection that genuinely holds no matching row, so the reason is surfaced
+ * next to the empty result instead of being discarded with the build status.
+ */
+const filterNotices = computed(() => {
+	const notices: string[] = [];
+
+	if (props.searchStatus === 'unsupported') {
+		notices.push('None of the visible columns can be searched, so the current search matches no rows.');
+	} else if (props.searchStatus === 'invalid') {
+		notices.push('The search term does not fit any searchable visible column, so it matches no rows.');
+	}
+
+	if (props.columnFilterStatus === 'unsupported') {
+		notices.push('A column filter targets a field that cannot be searched, so no rows can match.');
+	} else if (props.columnFilterStatus === 'invalid') {
+		notices.push('A column filter value is not valid for its field, so no rows can match.');
+	}
+
+	return notices;
+});
+
 const inlineFilterGridStyle = computed<CSSProperties>(() => ({
 	gridTemplateColumns:
 		measuredGridTemplateColumns.value ??
@@ -260,6 +284,10 @@ function displayValue(item: Item, field: string): unknown {
 			</div>
 		</section>
 
+		<v-notice v-for="notice in filterNotices" :key="notice" class="filter-notice" type="warning">
+			{{ notice }}
+		</v-notice>
+
 		<v-table
 			v-if="loading || (items.length > 0 && !error)"
 			ref="table"
@@ -399,6 +427,11 @@ function displayValue(item: Item, field: string): unknown {
 	display: contents;
 	margin: var(--content-padding);
 	margin-block-end: var(--content-padding-bottom);
+}
+
+.filter-notice {
+	inline-size: calc(100% - (2 * var(--content-padding)));
+	margin: 0 var(--content-padding) 16px;
 }
 
 .column-filter-panel {

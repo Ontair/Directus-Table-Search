@@ -24,7 +24,7 @@ import { getDefaultDisplay } from './utils/default-display';
 import { buildDisplayQuery, buildExportFields } from './utils/display-query';
 import { buildColumnFilterKinds } from './utils/filter-control';
 import { isFieldAllowed } from './utils/field-permission';
-import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
+import { buildColumnFiltersResult, buildGlobalSearchFilterResult, combineFilters } from './utils/filter';
 import { planRowInteraction } from './utils/row-interaction';
 import { getTableRowHeight } from './utils/table-row-height';
 
@@ -156,14 +156,16 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			collection.value ? buildExportFields(collection.value, fields.value, metadata) : [],
 		);
 		const columnFilterKinds = computed(() => buildColumnFilterKinds(columnPlans.value));
-		const globalSearchFilter = computed(() => buildGlobalSearchFilter(columnPlans.value, search.value));
-		const perColumnFilter = computed(() => buildColumnFilters(columnPlans.value, columnFilters.value));
+		const globalSearch = computed(() => buildGlobalSearchFilterResult(columnPlans.value, search.value));
+		const perColumnFilters = computed(() => buildColumnFiltersResult(columnPlans.value, columnFilters.value));
+		const searchStatus = computed(() => globalSearch.value.status);
+		const columnFilterStatus = computed(() => perColumnFilters.value.status);
 		const effectiveFilter = computed<Filter | null>(
 			() =>
 				combineFilters(
 					filter.value as Record<string, unknown> | null,
-					globalSearchFilter.value,
-					perColumnFilter.value,
+					globalSearch.value.filter,
+					perColumnFilters.value.filter,
 				) as Filter | null,
 		);
 		const disabledNativeSearch = ref<string | null>(null);
@@ -308,6 +310,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			columnFilterMode,
 			columnFilterKinds,
 			columnFilters,
+			columnFilterStatus,
 			effectiveFilter,
 			error,
 			exportFields,
@@ -329,6 +332,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			refresh,
 			resetPresetAndRefresh,
 			selectAll,
+			searchStatus,
 			selection,
 			showColumnFilters,
 			showingCount,

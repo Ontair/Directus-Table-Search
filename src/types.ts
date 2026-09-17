@@ -7,6 +7,8 @@ export type FilterBuildResult =
 	| { filter: FilterNode; status: 'unsupported' }
 	| { filter: FilterNode; status: 'invalid' | 'valid' };
 
+export type FilterStatus = FilterBuildResult['status'];
+
 export type ShowSelect = 'multiple' | 'none' | 'one';
 
 export type ColumnFilterValues = Record<string, string>;
@@ -87,6 +89,7 @@ export interface LayoutComponentProps {
 	columnFilterMode: ColumnFilterMode;
 	columnFilterKinds: Record<string, ColumnFilterControlKind>;
 	columnFilters: ColumnFilterValues;
+	columnFilterStatus: FilterStatus;
 	error?: unknown;
 	fields: string[];
 	itemCount?: number | null;
@@ -103,6 +106,7 @@ export interface LayoutComponentProps {
 	primaryKeyField?: Field | null;
 	resetPresetAndRefresh: () => Promise<void>;
 	search?: string | null;
+	searchStatus: FilterStatus;
 	selectAll: () => void;
 	selection: (number | string)[];
 	showColumnFilters: boolean;
