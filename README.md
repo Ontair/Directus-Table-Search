@@ -86,6 +86,8 @@ The suite creates idempotent `table_search_it_*` fixtures, including M2O, O2M, M
 
 For a Directus edition where custom row permission rules are unavailable, set `DIRECTUS_EXPECT_ROW_PERMISSION_RULES=false`. Field-level permission checks still run; only the row-rule assertion is skipped. If that edition also prevents creating field restrictions, use `DIRECTUS_TEST_RESTRICTED_PERMISSIONS=false`; relational, filter-composition, sorting, and pagination integration cases still run, while restricted-permission cases are skipped.
 
+The integration suite expects PostgreSQL-style Unicode case folding for `_icontains`. When intentionally testing a database whose collation does not provide it (notably a default SQLite setup), set `DIRECTUS_EXPECT_UNICODE_CASE_FOLDING=false`. This flag documents a database limitation; it does not change generated filters.
+
 The domain logic under `src/utils/` is framework-independent and covered by unit tests. The layout adapter reads fields, relations, displays, and permissions from Directus at runtime, keeping the implementation reusable across collections.
 
 ## Known limitations

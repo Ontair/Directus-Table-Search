@@ -16,6 +16,7 @@ const restrictedPassword = process.env.DIRECTUS_RESTRICTED_PASSWORD ?? 'table-se
 const testRestrictedPermissions = process.env.DIRECTUS_TEST_RESTRICTED_PERMISSIONS !== 'false';
 const expectRowPermissionRules =
 	testRestrictedPermissions && process.env.DIRECTUS_EXPECT_ROW_PERMISSION_RULES !== 'false';
+const expectUnicodeCaseFolding = process.env.DIRECTUS_EXPECT_UNICODE_CASE_FOLDING !== 'false';
 
 const collections = {
 	articles: 'table_search_it_articles',
@@ -103,6 +104,18 @@ describe('Directus filter integration', () => {
 		expect(response.data).toEqual([
 			expect.objectContaining({ slug: 'article-01', status: 'published', title: 'Visible Search Guide' }),
 		]);
+	});
+
+	it.runIf(expectUnicodeCaseFolding)('matches non-ASCII text without case sensitivity on PostgreSQL', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['title'], metadata);
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug', 'title'],
+			filter: buildGlobalSearchFilter(plans, 'д'),
+		});
+
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toContainEqual(expect.objectContaining({ slug: 'article-03', title: 'Демонстрация поиска' }));
 	});
 
 	it('excludes scalar fields whose Directus type rejects text search operators', async () => {
@@ -482,7 +495,14 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 			sort: rank,
 			starts_at: rank === 1 ? '2026-09-10T12:34:00' : `${date}T${time}`,
 			status: rank === 2 || rank % 3 === 0 ? 'draft' : 'published',
-			title: rank === 1 ? 'Visible Search Guide' : rank === 2 ? 'Guide Draft' : `Article ${rank}`,
+			title:
+				rank === 1
+					? 'Visible Search Guide'
+					: rank === 2
+						? 'Guide Draft'
+						: rank === 3
+							? 'Демонстрация поиска'
+							: `Article ${rank}`,
 		});
 		articleIds.push(article.id as number);
 	}
