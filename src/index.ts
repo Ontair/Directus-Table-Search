@@ -217,10 +217,15 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			if (widthsTimer) clearTimeout(widthsTimer);
 		});
 
+		// Column resizing stores widths on a debounce, so local widths have to
+		// survive every unrelated layout-option change in between. The debounced
+		// write puts this exact object into the preset, which makes reference
+		// identity the reliable way to tell an external change from an echo of
+		// the layout's own write.
 		watch(
-			() => layoutOptions.value,
-			() => {
-				localWidths.value = {};
+			() => layoutOptions.value?.widths,
+			(widths) => {
+				if (widths !== localWidths.value) localWidths.value = {};
 			},
 		);
 
