@@ -12,6 +12,7 @@ import { createDirectusMetadataAccess } from './services/directus-metadata';
 import type {
 	ColumnAlignment,
 	ColumnFilterMode,
+	ColumnFilterIssue,
 	ColumnFilterValues,
 	LayoutOptions,
 	LayoutQuery,
@@ -159,7 +160,12 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const globalSearch = computed(() => buildGlobalSearchFilterResult(columnPlans.value, search.value));
 		const perColumnFilters = computed(() => buildColumnFiltersResult(columnPlans.value, columnFilters.value));
 		const searchStatus = computed(() => globalSearch.value.status);
-		const columnFilterStatus = computed(() => perColumnFilters.value.status);
+		const columnFilterIssues = computed<Record<string, ColumnFilterIssue>>(() =>
+			Object.fromEntries([
+				...perColumnFilters.value.unsupportedKeys.map((key) => [key, 'unsupported'] as const),
+				...perColumnFilters.value.invalidKeys.map((key) => [key, 'invalid'] as const),
+			]),
+		);
 		const effectiveFilter = computed<Filter | null>(
 			() =>
 				combineFilters(
@@ -310,7 +316,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			columnFilterMode,
 			columnFilterKinds,
 			columnFilters,
-			columnFilterStatus,
+			columnFilterIssues,
 			effectiveFilter,
 			error,
 			exportFields,

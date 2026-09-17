@@ -5,6 +5,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import TableLayout from '../src/components/table-layout.vue';
 
+function header(value: string, text: string) {
+	return {
+		align: 'left',
+		description: null,
+		field: { collection: 'example', display: 'raw', field: value, type: 'string' },
+		sortable: true,
+		text,
+		value,
+		width: 180,
+	};
+}
+
 function mountLayout(overrides: Record<string, unknown> = {}) {
 	const toPage = vi.fn();
 	const wrapper = mount(TableLayout, {
@@ -14,7 +26,7 @@ function mountLayout(overrides: Record<string, unknown> = {}) {
 			columnFilterKinds: {},
 			columnFilterMode: 'inline',
 			columnFilters: {},
-			columnFilterStatus: 'empty',
+			columnFilterIssues: {},
 			fields: ['id'],
 			itemCount: 1,
 			itemValuePaths: {},
@@ -129,20 +141,49 @@ describe('TableLayout filter feedback', () => {
 		expect(notices[0]?.text()).toContain('None of the visible columns can be searched');
 	});
 
-	it('explains a column filter value that cannot be applied', () => {
-		const { wrapper } = mountLayout({ items: [], itemCount: 0, columnFilterStatus: 'invalid' });
+	it('names the column whose filter value cannot be applied', () => {
+		const { wrapper } = mountLayout({
+			columnFilterIssues: { views: 'invalid' },
+			itemCount: 0,
+			items: [],
+			tableHeaders: [header('views', 'Views')],
+		});
 
-		expect(wrapper.get('.notice').text()).toContain('not valid for its field');
+		expect(wrapper.get('.notice').text()).toContain('The filter value for Views');
+	});
+
+	it('lists every unsearchable column in one notice', () => {
+		const { wrapper } = mountLayout({
+			columnFilterIssues: { payload: 'unsupported', signature: 'unsupported' },
+			itemCount: 0,
+			items: [],
+			tableHeaders: [header('payload', 'Payload'), header('signature', 'Signature')],
+		});
+
+		expect(wrapper.get('.notice').text()).toContain('Columns Payload, Signature cannot be searched');
 	});
 
 	it('reports the search and the column filters independently', () => {
 		const { wrapper } = mountLayout({
-			columnFilterStatus: 'unsupported',
+			columnFilterIssues: { views: 'unsupported' },
 			itemCount: 0,
 			items: [],
 			searchStatus: 'invalid',
+			tableHeaders: [header('views', 'Views')],
 		});
 
 		expect(wrapper.findAll('.notice')).toHaveLength(2);
+	});
+
+	it('marks the control that holds the unusable value', () => {
+		const { wrapper } = mountLayout({
+			columnFilterIssues: { views: 'invalid' },
+			columnFilterKinds: { views: 'number' },
+			columnFilters: { views: 'abc' },
+			showColumnFilters: true,
+			tableHeaders: [header('views', 'Views')],
+		});
+
+		expect(wrapper.find('.inline-column-filter__control--invalid').exists()).toBe(true);
 	});
 });

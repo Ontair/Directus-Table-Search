@@ -14,7 +14,7 @@ import {
 } from 'vue';
 
 import ColumnFilterControl from './column-filter-control.vue';
-import type { LayoutComponentProps, TableHeader, TableSort } from '../types';
+import type { ColumnFilterIssue, LayoutComponentProps, TableHeader, TableSort } from '../types';
 import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
 import { getTableGridMetrics } from '../utils/table-grid';
@@ -66,6 +66,8 @@ const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFi
  * collection that genuinely holds no matching row, so the reason is surfaced
  * next to the empty result instead of being discarded with the build status.
  */
+const columnLabels = computed(() => new Map(props.tableHeaders.map((header) => [header.value, header.text])));
+
 const filterNotices = computed(() => {
 	const notices: string[] = [];
 
@@ -75,14 +77,35 @@ const filterNotices = computed(() => {
 		notices.push('The search term does not fit any searchable visible column, so it matches no rows.');
 	}
 
-	if (props.columnFilterStatus === 'unsupported') {
-		notices.push('A column filter targets a field that cannot be searched, so no rows can match.');
-	} else if (props.columnFilterStatus === 'invalid') {
-		notices.push('A column filter value is not valid for its field, so no rows can match.');
+	const unsupported = describeIssuedColumns('unsupported');
+	if (unsupported.length === 1)
+		notices.push(`Column ${unsupported[0]} cannot be searched, so its filter matches no rows.`);
+	else if (unsupported.length > 1) {
+		notices.push(`Columns ${unsupported.join(', ')} cannot be searched, so their filters match no rows.`);
+	}
+
+	const invalid = describeIssuedColumns('invalid');
+	if (invalid.length === 1) {
+		notices.push(`The filter value for ${invalid[0]} does not fit that column, so it matches no rows.`);
+	} else if (invalid.length > 1) {
+		notices.push(`The filter values for ${invalid.join(', ')} do not fit those columns, so they match no rows.`);
 	}
 
 	return notices;
 });
+
+function describeIssuedColumns(issue: ColumnFilterIssue): string[] {
+	return Object.entries(props.columnFilterIssues)
+		.filter(([, value]) => value === issue)
+		.map(([field]) => columnLabels.value.get(field) ?? field);
+}
+
+function columnFilterIssueHint(field: string): string | undefined {
+	const issue = props.columnFilterIssues[field];
+	if (issue === 'unsupported') return 'This column cannot be searched, so its filter matches no rows.';
+	if (issue === 'invalid') return 'This value does not fit the column, so it matches no rows.';
+	return undefined;
+}
 
 const inlineFilterGridStyle = computed<CSSProperties>(() => ({
 	gridTemplateColumns:
@@ -227,7 +250,13 @@ function displayValue(item: Item, field: string): unknown {
 			</header>
 
 			<div class="column-filter-panel__fields">
-				<label v-for="header in tableHeaders" :key="header.value" class="column-filter">
+				<label
+					v-for="header in tableHeaders"
+					:key="header.value"
+					class="column-filter"
+					:class="{ 'column-filter--invalid': columnFilterIssues[header.value] }"
+					:title="columnFilterIssueHint(header.value)"
+				>
 					<span class="column-filter__label" :title="header.description || header.text">{{ header.text }}</span>
 					<column-filter-control
 						:model-value="columnFilters[header.value] || ''"
@@ -254,7 +283,11 @@ function displayValue(item: Item, field: string): unknown {
 					</span>
 					<span
 						class="inline-column-filter__control"
-						:class="{ 'inline-column-filter__control--focused': focusedFilter === header.value }"
+						:class="{
+							'inline-column-filter__control--focused': focusedFilter === header.value,
+							'inline-column-filter__control--invalid': columnFilterIssues[header.value],
+						}"
+						:title="columnFilterIssueHint(header.value)"
 						:style="inlineFilterControlStyle(header, index)"
 						@focusin="focusedFilter = header.value"
 						@focusout="focusedFilter = null"
@@ -539,6 +572,13 @@ function displayValue(item: Item, field: string): unknown {
 .inline-column-filter__control :deep(.v-input),
 .inline-column-filter__control :deep(.v-select) {
 	inline-size: 100%;
+}
+
+.column-filter--invalid :deep(.column-filter-control),
+.inline-column-filter__control--invalid :deep(.column-filter-control) {
+	border-radius: var(--theme--border-radius);
+	outline: 2px solid var(--theme--danger);
+	outline-offset: 1px;
 }
 
 .inline-column-filters__actions {

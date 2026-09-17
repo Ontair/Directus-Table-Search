@@ -1,4 +1,11 @@
-import type { ColumnFilterValues, ColumnPlan, FilterBuildResult, FilterNode, SearchLeaf } from '../types';
+import type {
+	ColumnFilterBuildResult,
+	ColumnFilterValues,
+	ColumnPlan,
+	FilterBuildResult,
+	FilterNode,
+	SearchLeaf,
+} from '../types';
 import { getSearchValueKind } from './search-type';
 import { buildPartialTemporalCondition } from './temporal-filter';
 
@@ -29,11 +36,17 @@ export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValu
 	return buildColumnFiltersResult(plans, values).filter;
 }
 
-export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilterValues): FilterBuildResult {
+/**
+ * Reports which columns could not be turned into a condition, not only that
+ * some column could not: the caller needs the key to mark the control the
+ * value was typed into, and a notice naming the column is the difference
+ * between a fixable mistake and an empty table without a reason.
+ */
+export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilterValues): ColumnFilterBuildResult {
 	const conditions: FilterNode[] = [];
+	const invalidKeys: string[] = [];
+	const unsupportedKeys: string[] = [];
 	let hasActiveValue = false;
-	let hasInvalidValue = false;
-	let hasUnsupportedValue = false;
 	let needsFallbackGuard = false;
 
 	for (const plan of plans) {
@@ -42,7 +55,7 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 		hasActiveValue = true;
 
 		if (plan.searchLeaves.length === 0) {
-			hasUnsupportedValue = true;
+			unsupportedKeys.push(plan.key);
 			if (plan.guardPath) conditions.push(impossiblePathCondition(plan.guardPath));
 			else needsFallbackGuard = true;
 			continue;
@@ -51,26 +64,26 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 		const columnCondition = buildPlanCondition(plan, term, true);
 		if (columnCondition) conditions.push(columnCondition);
 		else {
-			hasInvalidValue = true;
+			invalidKeys.push(plan.key);
 			conditions.push(impossibleLeafCondition(plan.searchLeaves[0]!));
 		}
 	}
 
-	if (!hasActiveValue) return { filter: null, status: 'empty' };
+	if (!hasActiveValue) return { filter: null, invalidKeys, status: 'empty', unsupportedKeys };
 
 	if (needsFallbackGuard) {
 		const fallbackLeaf = plans.flatMap((plan) => plan.searchLeaves)[0];
-		if (fallbackLeaf) {
-			hasInvalidValue = true;
-			conditions.push(impossibleLeafCondition(fallbackLeaf));
-		}
+		if (fallbackLeaf) conditions.push(impossibleLeafCondition(fallbackLeaf));
 	}
 
 	const filter = combineWithAnd(conditions);
 	if (filter) {
-		return { filter, status: hasUnsupportedValue ? 'unsupported' : hasInvalidValue ? 'invalid' : 'valid' };
+		if (unsupportedKeys.length > 0) return { filter, invalidKeys, status: 'unsupported', unsupportedKeys };
+		if (invalidKeys.length > 0) return { filter, invalidKeys, status: 'invalid', unsupportedKeys };
+		return { filter, invalidKeys, status: 'valid', unsupportedKeys };
 	}
-	return { filter: null, status: 'unsupported' };
+
+	return { filter: null, invalidKeys, status: 'unsupported', unsupportedKeys };
 }
 
 function buildPlanCondition(plan: ColumnPlan, term: string, partialTemporal: boolean): FilterNode | null {

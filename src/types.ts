@@ -9,6 +9,13 @@ export type FilterBuildResult =
 
 export type FilterStatus = FilterBuildResult['status'];
 
+export type ColumnFilterIssue = 'invalid' | 'unsupported';
+
+export type ColumnFilterBuildResult = FilterBuildResult & {
+	invalidKeys: string[];
+	unsupportedKeys: string[];
+};
+
 export type ShowSelect = 'multiple' | 'none' | 'one';
 
 export type ColumnFilterValues = Record<string, string>;
@@ -89,7 +96,7 @@ export interface LayoutComponentProps {
 	columnFilterMode: ColumnFilterMode;
 	columnFilterKinds: Record<string, ColumnFilterControlKind>;
 	columnFilters: ColumnFilterValues;
-	columnFilterStatus: FilterStatus;
+	columnFilterIssues: Record<string, ColumnFilterIssue>;
 	error?: unknown;
 	fields: string[];
 	itemCount?: number | null;

@@ -163,7 +163,9 @@ describe('filter generation', () => {
 		expect(buildGlobalSearchFilterResult(plans, 'anything')).toEqual({ filter: impossible, status: 'unsupported' });
 		expect(buildColumnFiltersResult(plans, { 'editor.email': 'anything' })).toEqual({
 			filter: impossible,
+			invalidKeys: [],
 			status: 'unsupported',
+			unsupportedKeys: ['editor.email'],
 		});
 	});
 
@@ -179,7 +181,33 @@ describe('filter generation', () => {
 			filter: {
 				_and: [{ title: { _icontains: 'guide' } }, { _and: [{ id: { _null: true } }, { id: { _nnull: true } }] }],
 			},
+			invalidKeys: [],
 			status: 'unsupported',
+			unsupportedKeys: ['editor.email'],
+		});
+	});
+
+	it('names every column that could not be turned into a condition', () => {
+		const plans: ColumnPlan[] = [
+			{ key: 'title', searchLeaves: [{ path: 'title', type: 'string' }] },
+			{ key: 'owner', searchLeaves: [{ path: 'owner', type: 'uuid' }] },
+			{ guardPath: 'payload', key: 'payload', searchLeaves: [] },
+		];
+		const result = buildColumnFiltersResult(plans, { title: 'guide', owner: 'not-a-uuid', payload: 'anything' });
+
+		expect(result.invalidKeys).toEqual(['owner']);
+		expect(result.unsupportedKeys).toEqual(['payload']);
+		expect(result.status).toBe('unsupported');
+	});
+
+	it('reports no issue keys while every active column filter is usable', () => {
+		const plans: ColumnPlan[] = [{ key: 'title', searchLeaves: [{ path: 'title', type: 'string' }] }];
+
+		expect(buildColumnFiltersResult(plans, { title: 'guide' })).toEqual({
+			filter: { title: { _icontains: 'guide' } },
+			invalidKeys: [],
+			status: 'valid',
+			unsupportedKeys: [],
 		});
 	});
 
@@ -193,7 +221,9 @@ describe('filter generation', () => {
 		});
 		expect(buildColumnFiltersResult(unsupportedPlans, { payload: 'anything' })).toEqual({
 			filter: expected,
+			invalidKeys: [],
 			status: 'unsupported',
+			unsupportedKeys: ['payload'],
 		});
 	});
 
@@ -205,7 +235,9 @@ describe('filter generation', () => {
 
 		expect(buildColumnFiltersResult(uuidPlans, { owner: 'partial-uuid' })).toEqual({
 			filter: expected,
+			invalidKeys: ['owner'],
 			status: 'invalid',
+			unsupportedKeys: [],
 		});
 		expect(buildGlobalSearchFilterResult(uuidPlans, 'partial-uuid')).toEqual({
 			filter: expected,
