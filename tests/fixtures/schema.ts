@@ -5,6 +5,7 @@ import type { MetadataAccess } from '../../src/types';
 type FieldOptions = {
 	display?: string;
 	displayOptions?: Record<string, unknown>;
+	interfaceOptions?: Record<string, unknown>;
 	primary?: boolean;
 	special?: string[];
 };
@@ -24,7 +25,7 @@ export function field(collection: string, name: string, type: Field['type'], opt
 			id: 1,
 			interface: null,
 			note: null,
-			options: null,
+			options: options.interfaceOptions ?? null,
 			readonly: false,
 			required: false,
 			sort: 1,

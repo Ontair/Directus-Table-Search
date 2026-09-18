@@ -4,7 +4,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createDirectusMetadataAccess } from '../../src/services/directus-metadata';
 import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildDisplayQuery } from '../../src/utils/display-query';
-import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from '../../src/utils/filter';
+import {
+	buildColumnFilters,
+	buildColumnFiltersResult,
+	buildGlobalSearchFilter,
+	buildGlobalSearchFilterResult,
+	combineFilters,
+} from '../../src/utils/filter';
 import { getValueAtPath } from '../../src/utils/object';
 import { encodeTemporalFilterValue } from '../../src/utils/temporal-filter';
 
@@ -16,6 +22,7 @@ const restrictedPassword = process.env.DIRECTUS_RESTRICTED_PASSWORD ?? 'table-se
 const testRestrictedPermissions = process.env.DIRECTUS_TEST_RESTRICTED_PERMISSIONS !== 'false';
 const expectRowPermissionRules =
 	testRestrictedPermissions && process.env.DIRECTUS_EXPECT_ROW_PERMISSION_RULES !== 'false';
+const expectUnicodeCaseFolding = process.env.DIRECTUS_EXPECT_UNICODE_CASE_FOLDING !== 'false';
 
 const collections = {
 	articles: 'table_search_it_articles',
@@ -31,7 +38,7 @@ let fixtures: FixtureIds;
 
 describe('Directus filter integration', () => {
 	beforeAll(async () => {
-		admin = await DirectusClient.login(adminEmail, adminPassword);
+		admin = await DirectusClient.login(adminEmail, adminPassword, true);
 		fixtures = await ensureFixture(admin);
 		if (testRestrictedPermissions) {
 			restricted = await DirectusClient.login(restrictedEmail, restrictedPassword);
@@ -105,13 +112,25 @@ describe('Directus filter integration', () => {
 		]);
 	});
 
+	it.runIf(expectUnicodeCaseFolding)('matches non-ASCII text without case sensitivity on PostgreSQL', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['title'], metadata);
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug', 'title'],
+			filter: buildGlobalSearchFilter(plans, 'д'),
+		});
+
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toContainEqual(expect.objectContaining({ slug: 'article-03', title: 'Демонстрация поиска' }));
+	});
+
 	it('excludes scalar fields whose Directus type rejects text search operators', async () => {
 		const metadata = await loadMetadata(admin);
 		const plans = buildColumnPlans(collections.articles, ['title', 'password_hash'], metadata);
 
 		expect(plans).toEqual([
 			{ key: 'title', searchLeaves: [{ path: 'title', type: 'string' }] },
-			{ key: 'password_hash', searchLeaves: [] },
+			{ guardPath: 'password_hash', key: 'password_hash', searchLeaves: [] },
 		]);
 
 		const response = await admin.getItems(collections.articles, {
@@ -129,6 +148,55 @@ describe('Directus filter integration', () => {
 		expect(unsupportedResponse.status).toBe(400);
 	});
 
+	it('turns a search over only unsupported fields into a safe empty result', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['password_hash'], metadata);
+		const result = buildGlobalSearchFilterResult(plans, 'Guide');
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('unsupported');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
+	});
+
+	it('rejects invalid global datetime offsets without sending an unsafe database value', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
+		const result = buildGlobalSearchFilterResult(plans, '2026-09-10T12:34:00+23:59');
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('invalid');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
+	});
+
+	it('executes rendered date and split relational display searches', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ fields: ['published_on'], term: '10.09.2026' },
+			{ fields: ['editor'], term: `${fixtures.restrictedFirstName} Tester` },
+		];
+
+		for (const testCase of cases) {
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter: buildGlobalSearchFilter(
+					buildColumnPlans(collections.articles, testCase.fields, metadata),
+					testCase.term,
+				),
+			});
+
+			expect(response.status, JSON.stringify(response.body)).toBe(200);
+			expect(response.data.map((item) => item.slug)).toContain('article-01');
+		}
+	});
+
 	it('executes exact column filters for every supported scalar family', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [
@@ -140,7 +208,7 @@ describe('Directus filter integration', () => {
 			{ field: 'active', term: 'false', slug: 'article-02' },
 			{ field: 'published_on', term: '2026-09-10', slug: 'article-01' },
 			{ field: 'starts_at', term: '2026-09-10T12:34:00', slug: 'article-01' },
-			{ field: 'recorded_at', term: '10.09.2026 12:34:00', slug: 'article-01' },
+			{ field: 'recorded_at', term: '2026-09-10T12:34:00Z', slug: 'article-01' },
 			{ field: 'opens_at', term: '12:34:00', slug: 'article-01' },
 			{ field: 'external_id', term: '123e4567-e89b-42d3-a456-426614174000', slug: 'article-01' },
 		];
@@ -161,7 +229,30 @@ describe('Directus filter integration', () => {
 		}
 	});
 
-	it('executes independent date, datetime, timestamp and time segments', async () => {
+	it('keeps active invalid exact filters safe instead of dropping them', async () => {
+		const metadata = await loadMetadata(admin);
+		const cases = [
+			{ field: 'rank', term: 'not-a-number' },
+			{ field: 'reference_number', term: '7x' },
+			{ field: 'amount', term: '1.2.3' },
+			{ field: 'active', term: 'maybe' },
+			{ field: 'external_id', term: '123e4567' },
+		];
+
+		for (const testCase of cases) {
+			const plans = buildColumnPlans(collections.articles, [testCase.field], metadata);
+			const filter = buildColumnFilters(plans, { [testCase.field]: testCase.term });
+			const response = await admin.getItems(collections.articles, {
+				fields: ['slug'],
+				filter,
+			});
+
+			expect(response.status, `${testCase.field}: ${JSON.stringify(response.body)}`).toBe(200);
+			expect(response.data, testCase.field).toEqual([]);
+		}
+	});
+
+	it('executes independent date, datetime and time segments', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [
 			{
@@ -190,12 +281,6 @@ describe('Directus filter integration', () => {
 			},
 			{
 				excluded: 'article-11',
-				field: 'recorded_at',
-				included: 'article-10',
-				term: encodeTemporalFilterValue({ minute: '10' }),
-			},
-			{
-				excluded: 'article-11',
 				field: 'opens_at',
 				included: 'article-10',
 				term: encodeTemporalFilterValue({ minute: '10' }),
@@ -215,6 +300,22 @@ describe('Directus filter integration', () => {
 			expect(slugs, testCase.field).toContain(testCase.included);
 			expect(slugs, testCase.field).not.toContain(testCase.excluded);
 		}
+	});
+
+	it('rejects timezone-blind partial timestamp filters safely', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
+		const result = buildColumnFiltersResult(plans, {
+			recorded_at: encodeTemporalFilterValue({ minute: '10' }),
+		});
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('invalid');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
 	});
 
 	it('keeps server pagination and sorting stable', async () => {
@@ -250,8 +351,12 @@ describe('Directus filter integration', () => {
 			expect(authorPlan?.searchLeaves.map(({ path }) => path)).toContain('author.name');
 
 			const safeFilter = buildGlobalSearchFilter(plans, 'Ada Lovelace');
+			const displayQuery = buildDisplayQuery(collections.articles, ['slug', 'author'], metadata);
+			expect(displayQuery.fields).not.toContain('author.code');
+			expect(displayQuery.fields).toContain('author.name');
 			const safeResponse = await restricted.getItems(collections.articles, {
-				fields: ['id', 'slug', 'author.name'],
+				alias: displayQuery.alias,
+				fields: displayQuery.fields,
 				filter: safeFilter,
 			});
 			expect(safeResponse.status, JSON.stringify(safeResponse.body)).toBe(200);
@@ -304,9 +409,12 @@ interface ApiResponse<T = Record<string, any>> {
 }
 
 class DirectusClient {
-	private constructor(private readonly token: string) {}
+	private constructor(
+		private readonly token: string,
+		readonly isAdmin: boolean,
+	) {}
 
-	static async login(email: string, password: string): Promise<DirectusClient> {
+	static async login(email: string, password: string, isAdmin = false): Promise<DirectusClient> {
 		const response = await fetch(`${baseUrl}/auth/login`, {
 			body: JSON.stringify({ email, password }),
 			headers: { 'content-type': 'application/json' },
@@ -314,7 +422,7 @@ class DirectusClient {
 		});
 		const body = await response.json();
 		if (!response.ok) throw new Error(`Directus login failed (${response.status}): ${JSON.stringify(body)}`);
-		return new DirectusClient(body.data.access_token as string);
+		return new DirectusClient(body.data.access_token as string, isAdmin);
 	}
 
 	async request<T = Record<string, any>>(
@@ -455,7 +563,14 @@ async function ensureFixture(client: DirectusClient): Promise<FixtureIds> {
 			sort: rank,
 			starts_at: rank === 1 ? '2026-09-10T12:34:00' : `${date}T${time}`,
 			status: rank === 2 || rank % 3 === 0 ? 'draft' : 'published',
-			title: rank === 1 ? 'Visible Search Guide' : rank === 2 ? 'Guide Draft' : `Article ${rank}`,
+			title:
+				rank === 1
+					? 'Visible Search Guide'
+					: rank === 2
+						? 'Guide Draft'
+						: rank === 3
+							? 'Демонстрация поиска'
+							: `Article ${rank}`,
 		});
 		articleIds.push(article.id as number);
 	}
@@ -734,7 +849,7 @@ async function loadMetadata(client: DirectusClient) {
 			getPermission: (collection, action) => permissions[collection]?.[action] ?? null,
 			hasPermission: (collection, action) => {
 				const permission = permissions[collection]?.[action];
-				return permission ? permission.access !== 'none' : permissionsResponse.status === 200;
+				return permission ? permission.access !== 'none' : client.isAdmin;
 			},
 		},
 		relationsStore: {

@@ -1,26 +1,34 @@
 import { defineLayout, useCollection, useExtensions, useItems, useStores, useSync } from '@directus/extensions-sdk';
+import { isPublishedVersionKey } from '@directus/constants';
 import type { Field, Filter, Item } from '@directus/types';
-import { computed, ref, toRefs, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import TableActions from './components/table-actions.vue';
+import TableExport from './components/table-export.vue';
 import TableLayout from './components/table-layout.vue';
 import TableOptions from './components/table-options.vue';
+import { useDebouncedValue } from './composables/use-debounced-value';
 import { createDirectusMetadataAccess } from './services/directus-metadata';
 import type {
 	ColumnAlignment,
 	ColumnFilterMode,
+	ColumnFilterIssue,
 	ColumnFilterValues,
 	LayoutOptions,
 	LayoutQuery,
 	TableHeader,
 	TableSort,
 } from './types';
+import { pruneColumnFilters } from './utils/column-filter-state';
 import { buildColumnPlans } from './utils/column-plan';
 import { getDefaultDisplay } from './utils/default-display';
-import { buildDisplayQuery } from './utils/display-query';
+import { buildDisplayQuery, buildExportFields } from './utils/display-query';
 import { buildColumnFilterKinds } from './utils/filter-control';
-import { buildColumnFilters, buildGlobalSearchFilter, combineFilters } from './utils/filter';
+import { isFieldAllowed } from './utils/field-permission';
+import { buildColumnFiltersResult, buildGlobalSearchFilterResult, combineFilters } from './utils/filter';
+import { planRowInteraction } from './utils/row-interaction';
+import { getTableRowHeight } from './utils/table-row-height';
 
 export default defineLayout<LayoutOptions, LayoutQuery>({
 	id: 'table-search',
@@ -30,14 +38,17 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 	slots: {
 		actions: TableActions,
 		options: TableOptions,
-		sidebar: () => null,
+		sidebar: TableExport,
 	},
 	setup(props, { emit }) {
+		const searchApplyDelay = 300;
 		const router = useRouter();
+		const route = useRoute();
 		const stores = useStores();
 		const fieldsStore = stores.useFieldsStore();
 		const relationsStore = stores.useRelationsStore();
 		const permissionsStore = stores.usePermissionsStore();
+		const serverStore = typeof stores.useServerStore === 'function' ? stores.useServerStore() : null;
 		const { displays } = useExtensions();
 
 		const selection = useSync(props, 'selection', emit);
@@ -66,7 +77,11 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 				return (saved ?? defaultFields.value).filter((field) => fieldsStore.getField(collection.value, field));
 			},
 			set: (value) => {
-				layoutQuery.value = { ...layoutQuery.value, fields: value };
+				layoutQuery.value = {
+					...layoutQuery.value,
+					columnFilters: pruneColumnFilters(layoutQuery.value?.columnFilters ?? {}, value),
+					fields: value,
+				};
 			},
 		});
 
@@ -97,9 +112,12 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		});
 
 		const columnFilters = computed<ColumnFilterValues>({
-			get: () => layoutQuery.value?.columnFilters ?? {},
+			get: () => pruneColumnFilters(layoutQuery.value?.columnFilters ?? {}, fields.value),
 			set: (value) => {
-				layoutQuery.value = { ...layoutQuery.value, columnFilters: value };
+				layoutQuery.value = {
+					...layoutQuery.value,
+					columnFilters: pruneColumnFilters(value, fields.value),
+				};
 			},
 		});
 
@@ -137,19 +155,51 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		const queryFields = computed(() => displayQuery.value.fields);
 		const queryAlias = computed(() => displayQuery.value.alias);
 		const itemValuePaths = computed(() => displayQuery.value.valuePaths);
+		const exportFields = computed(() =>
+			collection.value ? buildExportFields(collection.value, fields.value, metadata) : [],
+		);
 		const columnFilterKinds = computed(() => buildColumnFilterKinds(columnPlans.value));
-		const globalSearchFilter = computed(() => buildGlobalSearchFilter(columnPlans.value, search.value));
-		const perColumnFilter = computed(() => buildColumnFilters(columnPlans.value, columnFilters.value));
+		// The search box belongs to the Directus shell. Building a filter and
+		// refreshing both rows and counts synchronously for every key event blocks
+		// that shell from painting the character the user just entered.
+		const appliedSearch = useDebouncedValue(() => search.value, searchApplyDelay);
+		const globalSearch = computed(() => buildGlobalSearchFilterResult(columnPlans.value, appliedSearch.value));
+		const perColumnFilters = computed(() => buildColumnFiltersResult(columnPlans.value, columnFilters.value));
+		const searchStatus = computed(() => globalSearch.value.status);
+		const columnFilterIssues = computed<Record<string, ColumnFilterIssue>>(() =>
+			Object.fromEntries([
+				...perColumnFilters.value.unsupportedKeys.map((key) => [key, 'unsupported'] as const),
+				...perColumnFilters.value.invalidKeys.map((key) => [key, 'invalid'] as const),
+				...perColumnFilters.value.limitedKeys.map((key) => [key, 'limited'] as const),
+			]),
+		);
 		const effectiveFilter = computed<Filter | null>(
 			() =>
 				combineFilters(
 					filter.value as Record<string, unknown> | null,
-					globalSearchFilter.value,
-					perColumnFilter.value,
+					globalSearch.value.filter,
+					perColumnFilters.value.filter,
 				) as Filter | null,
 		);
 		const disabledNativeSearch = ref<string | null>(null);
+		const routeVersionKey = computed(() => {
+			const version = route.query.version;
+			return Array.isArray(version) ? (version[0] ?? null) : (version ?? null);
+		});
+		const versionKey = computed(() => (props.selectMode ? null : routeVersionKey.value));
+		const isVersion = computed(() => Boolean(versionKey.value && !isPublishedVersionKey(versionKey.value)));
 
+		const itemState = useItems(collection, {
+			alias: queryAlias,
+			fields: queryFields,
+			filter: effectiveFilter,
+			filterSystem,
+			limit,
+			page,
+			search: disabledNativeSearch,
+			sort,
+			version: versionKey,
+		});
 		const {
 			changeManualSort,
 			error,
@@ -161,24 +211,36 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			loading,
 			totalCount,
 			totalPages,
-		} = useItems(collection, {
-			alias: queryAlias,
-			fields: queryFields,
-			filter: effectiveFilter,
-			filterSystem,
-			limit,
-			page,
-			search: disabledNativeSearch,
-			sort,
+		} = itemState;
+		const loadingItemCount = itemState.loadingItemCount ?? ref(false);
+		const visibleItems = computed<Item[]>(() => {
+			if (!isVersion.value) return items.value;
+
+			return items.value.map((item) => ({
+				...item,
+				_versionId:
+					item.$meta && typeof item.$meta === 'object'
+						? ((item.$meta as Record<string, unknown>).version_id ?? null)
+						: null,
+			}));
 		});
+		const itemKey = computed(() => (isVersion.value ? '_versionId' : primaryKeyField.value?.field));
 
 		const localWidths = ref<Record<string, number>>({});
 		let widthsTimer: ReturnType<typeof setTimeout> | undefined;
+		onBeforeUnmount(() => {
+			if (widthsTimer) clearTimeout(widthsTimer);
+		});
 
+		// Column resizing stores widths on a debounce, so local widths have to
+		// survive every unrelated layout-option change in between. The debounced
+		// write puts this exact object into the preset, which makes reference
+		// identity the reliable way to tell an external change from an echo of
+		// the layout's own write.
 		watch(
-			() => layoutOptions.value,
-			() => {
-				localWidths.value = {};
+			() => layoutOptions.value?.widths,
+			(widths) => {
+				if (widths !== localWidths.value) localWidths.value = {};
 			},
 		);
 
@@ -235,15 +297,15 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			return current.startsWith('-') ? { by: current.slice(1), desc: true } : { by: current, desc: false };
 		});
 
-		const tableRowHeight = computed(() => {
-			if (tableSpacing.value === 'compact') return 32;
-			if (tableSpacing.value === 'comfortable') return 64;
-			return 48;
-		});
+		const tableRowHeight = computed(() => getTableRowHeight(tableSpacing.value, serverStore?.info?.version));
 
-		const sortAllowed = computed(
-			() => Boolean(sortField.value) && permissionsStore.hasPermission(collection.value, 'update'),
-		);
+		const sortAllowed = computed(() => {
+			if (!sortField.value || versionKey.value || !permissionsStore.hasPermission(collection.value, 'update')) {
+				return false;
+			}
+
+			return isFieldAllowed(permissionsStore.getPermission(collection.value, 'update'), sortField.value);
+		});
 
 		const showingCount = computed(() => {
 			if (!itemCount.value) return undefined;
@@ -257,18 +319,24 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 		return {
 			activeFields,
 			changeManualSort,
+			collection,
 			columnFilterMode,
 			columnFilterKinds,
 			columnFilters,
+			columnFilterIssues,
+			effectiveFilter,
 			error,
+			exportFields,
 			fields,
 			fieldsInCollection,
 			info,
 			itemCount,
+			itemKey,
 			itemValuePaths,
-			items,
+			items: visibleItems,
 			limit,
 			loading,
+			loadingItemCount,
 			onAlignChange,
 			onRowClick,
 			onSortChange,
@@ -277,8 +345,11 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			refresh,
 			resetPresetAndRefresh,
 			selectAll,
+			searchStatus,
+			selection,
 			showColumnFilters,
 			showingCount,
+			sort,
 			sortAllowed,
 			sortField,
 			tableHeaders,
@@ -290,16 +361,13 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			},
 			totalCount,
 			totalPages,
+			versionKey,
 		};
 
 		function getFieldDescription(key: string): string | null {
 			if (!key.includes('.')) return null;
 
-			return key
-				.split('.')
-				.map((_, index, parts) => fieldsStore.getField(collection.value, parts.slice(0, index + 1).join('.'))?.name)
-				.filter(Boolean)
-				.join(' → ');
+			return key.split('.').filter(Boolean).join(' → ');
 		}
 
 		function onSortChange(next: TableSort | null): void {
@@ -313,23 +381,40 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			};
 		}
 
-		function onRowClick({ item }: { event: PointerEvent; item: Item }): void {
-			const primaryKey = primaryKeyField.value?.field;
-			if (!primaryKey || !collection.value) return;
-			const key = item[primaryKey] as number | string | undefined;
-			if (key === undefined) return;
+		function onRowClick({ event, item }: { event: PointerEvent; item: Item }): void {
+			if (!collection.value) return;
+			const interaction = planRowInteraction({
+				collection: collection.value,
+				item,
+				primaryKeyField: primaryKeyField.value?.field,
+				readonly: props.readonly,
+				selection: selection.value,
+				selectMode: props.selectMode,
+				versionKey: versionKey.value,
+			});
 
-			if (props.selectMode) {
-				selection.value = selection.value.includes(key)
-					? selection.value.filter((selected) => selected !== key)
-					: [...selection.value, key];
+			if (interaction.type === 'selection') {
+				selection.value = interaction.selection;
 				return;
 			}
 
-			void router.push(`/content/${encodeURIComponent(collection.value)}/${encodeURIComponent(String(key))}`);
+			if (interaction.type !== 'navigate') return;
+			if (event.ctrlKey || event.metaKey) window.open(router.resolve(interaction.route).href, '_blank', 'noopener');
+			else void router.push(interaction.route);
 		}
 
 		function selectAll(): void {
+			if (isVersion.value) {
+				selection.value = items.value
+					.map((item) =>
+						item.$meta && typeof item.$meta === 'object'
+							? (item.$meta as Record<string, unknown>).version_id
+							: undefined,
+					)
+					.filter((id): id is string => typeof id === 'string' && id.length > 0);
+				return;
+			}
+
 			const primaryKey = primaryKeyField.value?.field;
 			if (!primaryKey) return;
 			selection.value = items.value.map((item) => item[primaryKey] as number | string);
@@ -337,8 +422,8 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 
 		function refresh(): void {
 			void getItems();
-			void getItemCount();
-			void getTotalCount();
+			void getItemCount(true);
+			void getTotalCount(true);
 		}
 
 		async function resetPresetAndRefresh(): Promise<void> {

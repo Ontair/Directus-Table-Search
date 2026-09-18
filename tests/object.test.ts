@@ -29,6 +29,14 @@ describe('getValueAtPath', () => {
 		expect(getValueAtPath(item, 'tags.tags_id.name')).toEqual(['News', 'Featured']);
 	});
 
+	it('preserves false, zero and empty strings in relational arrays', () => {
+		const item = {
+			children: [{ value: false }, { value: 0 }, { value: '' }, { value: null }, {}],
+		};
+
+		expect(getValueAtPath(item, 'children.value')).toEqual([false, 0, '']);
+	});
+
 	it('ignores synthetic display path segments just like Directus Table', () => {
 		const item = {
 			image: { id: 'asset-id' },

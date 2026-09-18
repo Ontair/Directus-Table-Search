@@ -2,6 +2,20 @@ import type { Field, Item, Relation } from '@directus/types';
 
 export type FilterNode = Record<string, unknown>;
 
+export type FilterBuildResult =
+	| { filter: null; status: 'empty' | 'unsupported' }
+	| { filter: FilterNode; status: 'invalid' | 'limited' | 'unsupported' | 'valid' };
+
+export type FilterStatus = FilterBuildResult['status'];
+
+export type ColumnFilterIssue = 'invalid' | 'limited' | 'unsupported';
+
+export type ColumnFilterBuildResult = FilterBuildResult & {
+	invalidKeys: string[];
+	limitedKeys: string[];
+	unsupportedKeys: string[];
+};
+
 export type ShowSelect = 'multiple' | 'none' | 'one';
 
 export type ColumnFilterValues = Record<string, string>;
@@ -10,7 +24,16 @@ export type TableSpacing = 'compact' | 'cozy' | 'comfortable';
 
 export type ColumnFilterMode = 'inline' | 'panel';
 
-export type SearchValueKind = 'boolean' | 'date' | 'dateTime' | 'number' | 'text' | 'time' | 'unsupported' | 'uuid';
+export type SearchValueKind =
+	| 'boolean'
+	| 'date'
+	| 'dateTime'
+	| 'number'
+	| 'text'
+	| 'time'
+	| 'timestamp'
+	| 'unsupported'
+	| 'uuid';
 
 export type ColumnFilterControlKind = SearchValueKind | 'mixed';
 
@@ -53,11 +76,18 @@ export interface TableHeader {
 }
 
 export interface SearchLeaf {
+	choices?: SearchChoice[];
 	path: string;
 	type: string;
 }
 
+export interface SearchChoice {
+	text: string;
+	value: boolean | number | string;
+}
+
 export interface ColumnPlan {
+	guardPath?: string;
 	key: string;
 	searchLeaves: SearchLeaf[];
 }
@@ -81,13 +111,16 @@ export interface LayoutComponentProps {
 	columnFilterMode: ColumnFilterMode;
 	columnFilterKinds: Record<string, ColumnFilterControlKind>;
 	columnFilters: ColumnFilterValues;
+	columnFilterIssues: Record<string, ColumnFilterIssue>;
 	error?: unknown;
 	fields: string[];
 	itemCount?: number | null;
+	itemKey?: string;
 	itemValuePaths: Record<string, string>;
 	items: Item[];
 	limit: number;
 	loading: boolean;
+	loadingItemCount?: boolean;
 	onAlignChange: (field: string, align: ColumnAlignment) => void;
 	onRowClick: (payload: { event: PointerEvent; item: Item }) => void;
 	onSortChange: (sort: TableSort | null) => void;
@@ -95,6 +128,7 @@ export interface LayoutComponentProps {
 	primaryKeyField?: Field | null;
 	resetPresetAndRefresh: () => Promise<void>;
 	search?: string | null;
+	searchStatus: FilterStatus;
 	selectAll: () => void;
 	selection: (number | string)[];
 	showColumnFilters: boolean;

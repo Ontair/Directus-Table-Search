@@ -1,5 +1,5 @@
 import type { MetadataAccess } from '../types';
-import { resolveFieldPath } from './field-path';
+import { getReadableDisplayPaths, removeVirtualSegments } from './display-path';
 
 export interface DisplayQuery {
 	alias: Record<string, string>;
@@ -17,7 +17,8 @@ export function buildDisplayQuery(collection: string, visibleFields: string[], m
 		const root = getRootField(key);
 		if (!root) continue;
 
-		const adjustedFields = adjustFieldForDisplay(collection, key, metadata);
+		const adjustedFields = getReadableDisplayPaths(collection, key, metadata);
+		if (adjustedFields.length === 0) continue;
 		if ((rootCounts[root] ?? 0) === 1) {
 			fields.push(...adjustedFields);
 			valuePaths[key] = removeVirtualSegments(key);
@@ -37,22 +38,13 @@ export function buildDisplayQuery(collection: string, visibleFields: string[], m
 	};
 }
 
-function adjustFieldForDisplay(collection: string, key: string, metadata: MetadataAccess): string[] {
-	const field = metadata.getField(collection, key) ?? resolveFieldPath(collection, key, metadata)?.field;
-	if (!field || field.meta?.display === null) return [key];
-
-	const displayFields = metadata.getDisplayFields(field);
-	if (displayFields.length === 0) return [key];
-
-	return displayFields.map((displayField) => {
-		const path = `${key}.${displayField}`;
-		if (field.collection !== 'directus_files' || !path.includes('$thumbnail')) return path;
-
-		return path
-			.split('.')
-			.filter((segment) => segment !== '$thumbnail')
-			.join('.');
-	});
+/**
+ * Export projections reuse the readable display paths but skip the alias
+ * indirection: Directus flattens the exported rows itself, and an exported
+ * column stays recognizable only under its real field path.
+ */
+export function buildExportFields(collection: string, visibleFields: string[], metadata: MetadataAccess): string[] {
+	return [...new Set(visibleFields.flatMap((key) => getReadableDisplayPaths(collection, key, metadata)))];
 }
 
 function countRootFields(fields: string[]): Record<string, number> {
@@ -70,13 +62,6 @@ function getRootField(field: string): string | undefined {
 function replaceRootField(field: string, replacement: string): string {
 	const [, ...nestedPath] = field.split('.');
 	return nestedPath.length > 0 ? `${replacement}.${nestedPath.join('.')}` : replacement;
-}
-
-function removeVirtualSegments(field: string): string {
-	return field
-		.split('.')
-		.filter((segment) => !segment.startsWith('$'))
-		.join('.');
 }
 
 function getSimpleHash(value: string): string {

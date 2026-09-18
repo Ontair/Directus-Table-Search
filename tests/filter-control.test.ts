@@ -13,7 +13,7 @@ describe('column filter controls', () => {
 		['boolean', 'boolean'],
 		['date', 'date'],
 		['dateTime', 'dateTime'],
-		['timestamp', 'dateTime'],
+		['timestamp', 'timestamp'],
 		['time', 'time'],
 		['uuid', 'uuid'],
 		['csv', 'text'],
@@ -48,6 +48,7 @@ describe('column filter controls', () => {
 			helpText: "Enter the complete numeric value; partial matching isn't supported.",
 			inputType: 'text',
 			placeholder: 'Full number only…',
+			visibleHint: 'Exact value',
 		});
 		expect(getColumnFilterControlConfig('boolean').placeholder).toBe('Any');
 		expect(getColumnFilterControlConfig('date')).toMatchObject({ inputType: 'text', placeholder: 'DD.MM.YYYY' });
@@ -57,6 +58,11 @@ describe('column filter controls', () => {
 		});
 		expect(getColumnFilterControlConfig('time')).toMatchObject({ inputType: 'text', placeholder: 'HH:MM:SS' });
 		expect(getColumnFilterControlConfig('uuid')).toMatchObject({ inputType: 'text', placeholder: 'Exact UUID…' });
+		expect(getColumnFilterControlConfig('timestamp')).toMatchObject({
+			inputType: 'text',
+			placeholder: 'Exact ISO timestamp…',
+			visibleHint: 'Exact ISO value',
+		});
 		expect(getColumnFilterControlConfig('unsupported')).toEqual({
 			inputType: 'text',
 			placeholder: 'Not searchable',

@@ -14,7 +14,8 @@ import {
 } from 'vue';
 
 import ColumnFilterControl from './column-filter-control.vue';
-import type { LayoutComponentProps, TableHeader, TableSort } from '../types';
+import type { ColumnFilterIssue, LayoutComponentProps, TableHeader, TableSort } from '../types';
+import { getColumnFilterControlConfig } from '../utils/filter-control';
 import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
 import { getTableGridMetrics } from '../utils/table-grid';
@@ -37,12 +38,15 @@ const mainElement = inject<Ref<Element | undefined>>('main-element');
 const pageSizes = [25, 50, 100, 250, 500, 1000];
 const alignments = ['left', 'center', 'right'] as const;
 const fallbackAuxiliaryColumnWidth = 36;
+const filterApplyDelay = 300;
 const focusedFilter = ref<string | null>(null);
 const measuredGridTemplateColumns = ref<string | null>(null);
 const measuredColumnWidths = ref<number[]>([]);
+const draftColumnFilters = ref<Record<string, string>>({ ...props.columnFilters });
 
 let headerResizeObserver: ResizeObserver | undefined;
 let observedHeaderRow: HTMLElement | null = null;
+let filterApplyTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
 const selectionWritable = computed({
 	get: () => props.selection,
@@ -55,10 +59,71 @@ const tableHeadersWritable = computed({
 });
 
 const activeFilterCount = computed(
-	() => Object.values(props.columnFilters).filter((value) => value.trim().length > 0).length,
+	() => Object.values(draftColumnFilters.value).filter((value) => value.trim().length > 0).length,
 );
 
 const hasActiveSearch = computed(() => Boolean(props.search?.trim()) || activeFilterCount.value > 0);
+
+/**
+ * A generated filter that cannot express the requested term matches nothing on
+ * purpose. Without an explanation that outcome is indistinguishable from a
+ * collection that genuinely holds no matching row, so the reason is surfaced
+ * next to the empty result instead of being discarded with the build status.
+ */
+const columnLabels = computed(() => new Map(props.tableHeaders.map((header) => [header.value, header.text])));
+
+const filterNotices = computed(() => {
+	const notices: string[] = [];
+
+	if (props.searchStatus === 'unsupported') {
+		notices.push('None of the visible columns can be searched, so the current search matches no rows.');
+	} else if (props.searchStatus === 'invalid') {
+		notices.push('The search term does not fit any searchable visible column, so it matches no rows.');
+	} else if (props.searchStatus === 'limited') {
+		notices.push('The search is too long or complex. Shorten it to keep the request safe.');
+	}
+
+	const unsupported = describeIssuedColumns('unsupported');
+	if (unsupported.length === 1)
+		notices.push(`Column ${unsupported[0]} cannot be searched, so its filter matches no rows.`);
+	else if (unsupported.length > 1) {
+		notices.push(`Columns ${unsupported.join(', ')} cannot be searched, so their filters match no rows.`);
+	}
+
+	const invalid = describeIssuedColumns('invalid');
+	if (invalid.length === 1) {
+		notices.push(`The filter value for ${invalid[0]} does not fit that column, so it matches no rows.`);
+	} else if (invalid.length > 1) {
+		notices.push(`The filter values for ${invalid.join(', ')} do not fit those columns, so they match no rows.`);
+	}
+
+	const limited = describeIssuedColumns('limited');
+	if (limited.length === 1)
+		notices.push(`The filter for ${limited[0]} is too long or complex. Shorten it and try again.`);
+	else if (limited.length > 1) {
+		notices.push(`The filters for ${limited.join(', ')} are too long or complex. Shorten them and try again.`);
+	}
+
+	return notices;
+});
+
+function describeIssuedColumns(issue: ColumnFilterIssue): string[] {
+	return Object.entries(props.columnFilterIssues)
+		.filter(([, value]) => value === issue)
+		.map(([field]) => columnLabels.value.get(field) ?? field);
+}
+
+function columnFilterIssueHint(field: string): string | undefined {
+	const issue = props.columnFilterIssues[field];
+	if (issue === 'unsupported') return 'This column cannot be searched, so its filter matches no rows.';
+	if (issue === 'invalid') return 'This value does not fit the column, so it matches no rows.';
+	if (issue === 'limited') return 'This value is too long or complex, so it matches no rows.';
+	return undefined;
+}
+
+function columnFilterVisibleHint(field: string): string | undefined {
+	return getColumnFilterControlConfig(props.columnFilterKinds[field] ?? 'unsupported').visibleHint;
+}
 
 const inlineFilterGridStyle = computed<CSSProperties>(() => ({
 	gridTemplateColumns:
@@ -92,6 +157,14 @@ watch(
 	() => mainElement?.value?.scrollTo({ top: 0, behavior: 'smooth' }),
 );
 
+watch(
+	() => props.columnFilters,
+	(value) => {
+		draftColumnFilters.value = { ...value };
+	},
+	{ deep: true },
+);
+
 onMounted(() => {
 	if (typeof ResizeObserver !== 'undefined') {
 		headerResizeObserver = new ResizeObserver(syncTableGrid);
@@ -100,7 +173,10 @@ onMounted(() => {
 	scheduleTableGridSync();
 });
 
-onBeforeUnmount(() => headerResizeObserver?.disconnect());
+onBeforeUnmount(() => {
+	headerResizeObserver?.disconnect();
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+});
 
 function scheduleTableGridSync(): void {
 	void nextTick(syncTableGrid);
@@ -144,23 +220,32 @@ function removeField(field: string): void {
 }
 
 function updateColumnFilter(field: string, value: unknown): void {
-	const next = { ...props.columnFilters };
+	const next = { ...draftColumnFilters.value };
 	const normalized =
 		typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 	if (normalized.trim()) next[field] = normalized;
 	else delete next[field];
-	emit('update:columnFilters', next);
+	draftColumnFilters.value = next;
+
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+	filterApplyTimer = globalThis.setTimeout(() => {
+		emit('update:columnFilters', { ...draftColumnFilters.value });
+		filterApplyTimer = undefined;
+	}, filterApplyDelay);
 }
 
 function clearColumnFilters(): void {
 	focusedFilter.value = null;
+	if (filterApplyTimer) globalThis.clearTimeout(filterApplyTimer);
+	filterApplyTimer = undefined;
+	draftColumnFilters.value = {};
 	emit('update:columnFilters', {});
 }
 
 function inlineFilterControlStyle(header: TableHeader, index: number): CSSProperties {
 	const focused = focusedFilter.value === header.value;
 	const columnWidth = measuredColumnWidths.value[index] ?? header.width;
-	const width = getInlineFilterControlWidth(columnWidth, props.columnFilters[header.value] ?? '', focused);
+	const width = getInlineFilterControlWidth(columnWidth, draftColumnFilters.value[header.value] ?? '', focused);
 	const alignToEnd = shouldExpandInlineFilterLeft(index, props.tableHeaders.length);
 
 	return {
@@ -203,10 +288,21 @@ function displayValue(item: Item, field: string): unknown {
 			</header>
 
 			<div class="column-filter-panel__fields">
-				<label v-for="header in tableHeaders" :key="header.value" class="column-filter">
-					<span class="column-filter__label" :title="header.description || header.text">{{ header.text }}</span>
+				<label
+					v-for="header in tableHeaders"
+					:key="header.value"
+					class="column-filter"
+					:class="{ 'column-filter--invalid': columnFilterIssues[header.value] }"
+					:title="columnFilterIssueHint(header.value)"
+				>
+					<span class="column-filter__label" :title="header.description || header.text">
+						<span>{{ header.text }}</span>
+						<span v-if="columnFilterVisibleHint(header.value)" class="column-filter__hint">
+							{{ columnFilterVisibleHint(header.value) }}
+						</span>
+					</span>
 					<column-filter-control
-						:model-value="columnFilters[header.value] || ''"
+						:model-value="draftColumnFilters[header.value] || ''"
 						:kind="columnFilterKinds[header.value] || 'unsupported'"
 						:disabled="columnFilterKinds[header.value] === 'unsupported'"
 						@update:model-value="updateColumnFilter(header.value, $event)"
@@ -226,17 +322,24 @@ function displayValue(item: Item, field: string): unknown {
 
 				<label v-for="(header, index) in tableHeaders" :key="header.value" class="inline-column-filter">
 					<span class="inline-column-filter__label" :title="header.description || header.text">
-						{{ header.text }}
+						<span>{{ header.text }}</span>
+						<span v-if="columnFilterVisibleHint(header.value)" class="column-filter__hint">
+							{{ columnFilterVisibleHint(header.value) }}
+						</span>
 					</span>
 					<span
 						class="inline-column-filter__control"
-						:class="{ 'inline-column-filter__control--focused': focusedFilter === header.value }"
+						:class="{
+							'inline-column-filter__control--focused': focusedFilter === header.value,
+							'inline-column-filter__control--invalid': columnFilterIssues[header.value],
+						}"
+						:title="columnFilterIssueHint(header.value)"
 						:style="inlineFilterControlStyle(header, index)"
 						@focusin="focusedFilter = header.value"
 						@focusout="focusedFilter = null"
 					>
 						<column-filter-control
-							:model-value="columnFilters[header.value] || ''"
+							:model-value="draftColumnFilters[header.value] || ''"
 							:kind="columnFilterKinds[header.value] || 'unsupported'"
 							:disabled="columnFilterKinds[header.value] === 'unsupported'"
 							@update:model-value="updateColumnFilter(header.value, $event)"
@@ -260,8 +363,12 @@ function displayValue(item: Item, field: string): unknown {
 			</div>
 		</section>
 
+		<v-notice v-for="notice in filterNotices" :key="notice" class="filter-notice" type="warning">
+			{{ notice }}
+		</v-notice>
+
 		<v-table
-			v-if="loading || (itemCount && itemCount > 0 && !error)"
+			v-if="loading || (items.length > 0 && !error)"
 			ref="table"
 			v-model="selectionWritable"
 			v-model:headers="tableHeadersWritable"
@@ -274,7 +381,7 @@ function displayValue(item: Item, field: string): unknown {
 			:items="items"
 			:loading="loading"
 			:row-height="tableRowHeight"
-			:item-key="primaryKeyField?.field"
+			:item-key="itemKey || primaryKeyField?.field"
 			:show-manual-sort="sortAllowed"
 			:manual-sort-key="sortField"
 			allow-header-reorder
@@ -361,8 +468,13 @@ function displayValue(item: Item, field: string): unknown {
 			<template #footer>
 				<div class="footer">
 					<div class="pagination">
+						<v-skeleton-loader
+							v-if="!loading && loadingItemCount && items.length === limit"
+							class="pagination-loading"
+							type="text"
+						/>
 						<v-pagination
-							v-if="totalPages > 1"
+							v-else-if="totalPages > 1"
 							:length="totalPages"
 							:total-visible="7"
 							show-first-last
@@ -394,6 +506,11 @@ function displayValue(item: Item, field: string): unknown {
 	display: contents;
 	margin: var(--content-padding);
 	margin-block-end: var(--content-padding-bottom);
+}
+
+.filter-notice {
+	inline-size: calc(100% - (2 * var(--content-padding)));
+	margin: 0 var(--content-padding) 16px;
 }
 
 .column-filter-panel {
@@ -435,11 +552,31 @@ function displayValue(item: Item, field: string): unknown {
 }
 
 .column-filter__label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 	overflow: hidden;
 	color: var(--theme--foreground-subdued);
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.column-filter__label > span:first-child,
+.inline-column-filter__label > span:first-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.column-filter__hint {
+	flex: 0 0 auto;
+	padding: 0 4px;
+	color: var(--theme--primary);
+	font-size: 9px;
+	font-weight: 600;
+	line-height: 14px;
+	background: var(--theme--primary-background);
+	border-radius: 3px;
 }
 
 .inline-column-filters {
@@ -475,7 +612,9 @@ function displayValue(item: Item, field: string): unknown {
 }
 
 .inline-column-filter__label {
-	display: block;
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	overflow: hidden;
 	color: var(--theme--foreground-subdued);
 	font-size: 11px;
@@ -501,6 +640,13 @@ function displayValue(item: Item, field: string): unknown {
 .inline-column-filter__control :deep(.v-input),
 .inline-column-filter__control :deep(.v-select) {
 	inline-size: 100%;
+}
+
+.column-filter--invalid :deep(.column-filter-control),
+.inline-column-filter__control--invalid :deep(.column-filter-control) {
+	border-radius: var(--theme--border-radius);
+	outline: 2px solid var(--theme--danger);
+	outline-offset: 1px;
 }
 
 .inline-column-filters__actions {

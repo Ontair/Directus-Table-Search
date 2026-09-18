@@ -81,8 +81,71 @@ describe('buildColumnPlans', () => {
 		};
 
 		expect(buildColumnPlans('articles', ['password_hash', 'binary_payload'], metadata)).toEqual([
-			{ key: 'password_hash', searchLeaves: [] },
-			{ key: 'binary_payload', searchLeaves: [] },
+			{ guardPath: 'password_hash', key: 'password_hash', searchLeaves: [] },
+			{ guardPath: 'binary_payload', key: 'binary_payload', searchLeaves: [] },
+		]);
+	});
+
+	it('keeps configured choice labels with their stored values', () => {
+		const baseMetadata = createSchema();
+		const status = field('articles', 'status', 'string', {
+			interfaceOptions: {
+				choices: [
+					{ text: 'Draft article', value: 'draft' },
+					{ text: 'Published article', value: 'published' },
+				],
+			},
+		});
+		const metadata = {
+			...baseMetadata,
+			getField: (collection: string, fieldName: string) =>
+				collection === 'articles' && fieldName === 'status' ? status : baseMetadata.getField(collection, fieldName),
+		};
+
+		expect(buildColumnPlans('articles', ['status'], metadata)).toEqual([
+			{
+				key: 'status',
+				searchLeaves: [
+					{
+						choices: [
+							{ text: 'Draft article', value: 'draft' },
+							{ text: 'Published article', value: 'published' },
+						],
+						path: 'status',
+						type: 'string',
+					},
+				],
+			},
+		]);
+	});
+	it('guards a column whose nested field the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['directus_users.email'] });
+
+		expect(buildColumnPlans('articles', ['editor.email'], metadata)).toEqual([
+			{ guardPath: 'id', key: 'editor.email', searchLeaves: [] },
+		]);
+	});
+
+	it('guards a column whose root field the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['articles.editor'] });
+
+		expect(buildColumnPlans('articles', ['editor'], metadata)).toEqual([
+			{ guardPath: 'id', key: 'editor', searchLeaves: [] },
+		]);
+	});
+
+	it('prefers the resolved column path over the primary key as the guard anchor', () => {
+		const baseMetadata = createSchema();
+		const metadata = {
+			...baseMetadata,
+			getField: (collection: string, fieldName: string) =>
+				collection === 'articles' && fieldName === 'payload'
+					? field('articles', fieldName, 'json')
+					: baseMetadata.getField(collection, fieldName),
+		};
+
+		expect(buildColumnPlans('articles', ['payload'], metadata)).toEqual([
+			{ guardPath: 'payload', key: 'payload', searchLeaves: [] },
 		]);
 	});
 });

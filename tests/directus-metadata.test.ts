@@ -22,6 +22,20 @@ describe('createDirectusMetadataAccess', () => {
 		expect(wildcard.canReadField('articles', 'anything')).toBe(true);
 	});
 
+	it('rejects fields when an explicit permission exposes no fields', () => {
+		const nullFields = makeAccess({
+			hasPermission: true,
+			permission: { access: 'partial', fields: null },
+		});
+		const emptyFields = makeAccess({
+			hasPermission: true,
+			permission: { access: 'partial', fields: [] },
+		});
+
+		expect(nullFields.canReadField('articles', 'title')).toBe(false);
+		expect(emptyFields.canReadField('articles', 'title')).toBe(false);
+	});
+
 	it('invokes a display field resolver with field context', () => {
 		const resolver = vi.fn(() => ['first_name', 'last_name']);
 		const access = makeAccess({

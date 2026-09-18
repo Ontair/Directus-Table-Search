@@ -1,6 +1,7 @@
 import type { Field } from '@directus/types';
 
-import type { ColumnPlan, MetadataAccess, SearchLeaf } from '../types';
+import type { ColumnPlan, MetadataAccess, ResolvedFieldPath, SearchChoice, SearchLeaf } from '../types';
+import { getReadableDisplayPaths } from './display-path';
 import { resolveReadableFieldPath } from './field-path';
 
 const NON_SEARCHABLE_TYPES = new Set([
@@ -25,11 +26,14 @@ export function buildColumnPlans(collection: string, visibleFields: string[], me
 }
 
 export function buildColumnPlan(collection: string, key: string, metadata: MetadataAccess): ColumnPlan | null {
-	const visibleField = metadata.getField(collection, key) ?? resolveReadableFieldPath(collection, key, metadata)?.field;
+	const resolvedVisibleField = resolveReadableFieldPath(collection, key, metadata);
+	const visibleField = metadata.getField(collection, key) ?? resolvedVisibleField?.field;
 	if (!visibleField) return null;
 
 	const rootFieldName = key.split('.')[0];
-	if (!rootFieldName || !metadata.canReadField(collection, rootFieldName)) return null;
+	if (!rootFieldName || !metadata.canReadField(collection, rootFieldName)) {
+		return buildGuardOnlyPlan(collection, key, metadata);
+	}
 
 	const isRootRelation = !key.includes('.') && metadata.getRelationsForField(collection, key).length > 0;
 	const candidates = isRootRelation ? getRelationalDisplayPaths(collection, key, visibleField, metadata) : [key];
@@ -42,21 +46,48 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 		if (fallback) resolved.push(fallback);
 	}
 
+	const searchLeaves = uniqueLeaves(
+		resolved
+			.filter(({ field }) => isSearchable(field))
+			.map(({ field, path }): SearchLeaf => {
+				const choices = getSearchChoices(field);
+				return { ...(choices.length > 0 ? { choices } : {}), path, type: field.type };
+			}),
+	);
+
+	const guardPath = searchLeaves.length === 0 ? getGuardPath(collection, resolvedVisibleField, metadata) : null;
+
 	return {
+		...(guardPath ? { guardPath } : {}),
 		key,
-		searchLeaves: uniqueLeaves(
-			resolved
-				.filter(({ field }) => isSearchable(field))
-				.map(({ field, path }): SearchLeaf => ({ path, type: field.type })),
-		),
+		searchLeaves,
 	};
 }
 
+function buildGuardOnlyPlan(collection: string, key: string, metadata: MetadataAccess): ColumnPlan {
+	const guardPath = getGuardPath(collection, null, metadata);
+	return { ...(guardPath ? { guardPath } : {}), key, searchLeaves: [] };
+}
+
+/**
+ * A column without searchable leaves still has to express "this term cannot
+ * match"; without an anchor the generated query would carry no condition at
+ * all and expose every row. The resolved column path is the most precise
+ * anchor, but it is missing whenever that path is itself unreadable or
+ * dynamic, so the collection's primary key takes over: a role that may read
+ * the collection may always read it.
+ */
+function getGuardPath(
+	collection: string,
+	resolved: ResolvedFieldPath | null | undefined,
+	metadata: MetadataAccess,
+): string | null {
+	return resolved?.path ?? metadata.getPrimaryKeyField(collection)?.field ?? null;
+}
+
 function getRelationalDisplayPaths(collection: string, key: string, field: Field, metadata: MetadataAccess): string[] {
-	const displayFields = metadata
-		.getDisplayFields(field)
-		.filter((path) => path && !path.split('.').some((part) => part.startsWith('$')));
-	if (displayFields.length > 0) return displayFields.map((path) => `${key}.${path}`);
+	const displayFields = getReadableDisplayPaths(collection, key, metadata);
+	if (metadata.getDisplayFields(field).length > 0) return displayFields;
 
 	const relatedCollection = getDirectRelatedCollection(collection, key, metadata);
 	if (!relatedCollection) return [key];
@@ -80,6 +111,29 @@ function isSearchable(field: Field): boolean {
 	return (
 		!NON_SEARCHABLE_TYPES.has(field.type) &&
 		!(field.meta?.special ?? []).some((special) => NON_SEARCHABLE_SPECIALS.has(special))
+	);
+}
+
+function getSearchChoices(field: Field): SearchChoice[] {
+	const sources = [field.meta?.options, field.meta?.display_options];
+	const choices: SearchChoice[] = [];
+
+	for (const source of sources) {
+		if (!source || typeof source !== 'object') continue;
+		const configured = (source as Record<string, unknown>).choices;
+		if (!Array.isArray(configured)) continue;
+
+		for (const choice of configured) {
+			if (!choice || typeof choice !== 'object') continue;
+			const { text, value } = choice as Record<string, unknown>;
+			if (typeof text !== 'string' || !['boolean', 'number', 'string'].includes(typeof value)) continue;
+			choices.push({ text, value: value as SearchChoice['value'] });
+		}
+	}
+
+	return choices.filter(
+		(choice, index) =>
+			choices.findIndex((candidate) => candidate.text === choice.text && candidate.value === choice.value) === index,
 	);
 }
 

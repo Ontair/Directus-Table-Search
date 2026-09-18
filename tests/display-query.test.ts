@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDisplayQuery } from '../src/utils/display-query';
+import { buildDisplayQuery, buildExportFields } from '../src/utils/display-query';
 import { createSchema } from './fixtures/schema';
 
 describe('buildDisplayQuery', () => {
@@ -46,6 +46,54 @@ describe('buildDisplayQuery', () => {
 	it('removes virtual path segments when resolving a cell value', () => {
 		const query = buildDisplayQuery('articles', ['author.$thumbnail.first_name'], createSchema());
 
+		expect(query.fields).toEqual(['author.first_name']);
 		expect(query.valuePaths['author.$thumbnail.first_name']).toBe('author.first_name');
+	});
+
+	it('never projects display fields that the current role cannot read', () => {
+		const metadata = createSchema({
+			denied: ['directus_users.avatar', 'directus_users.email'],
+		});
+		const query = buildDisplayQuery('articles', ['title', 'editor'], metadata);
+
+		expect(query.fields).toEqual(['title', 'editor.id', 'editor.first_name', 'editor.last_name']);
+		expect(query.fields).not.toContain('editor.avatar.id');
+		expect(query.fields).not.toContain('editor.email');
+	});
+
+	it('falls back to the readable relation field when all configured display fields are forbidden', () => {
+		const metadata = createSchema({
+			denied: ['authors.first_name', 'authors.last_name', 'authors.id'],
+		});
+		const query = buildDisplayQuery('articles', ['author'], metadata);
+
+		expect(query.fields).toEqual(['author']);
+		expect(query.valuePaths).toEqual({ author: 'author' });
+	});
+});
+
+describe('buildExportFields', () => {
+	it('projects the readable display paths without alias indirection', () => {
+		expect(buildExportFields('articles', ['title', 'author'], createSchema())).toEqual([
+			'title',
+			'author.first_name',
+			'author.last_name',
+			'author.id',
+		]);
+	});
+
+	it('keeps a shared relational root readable instead of aliasing it', () => {
+		expect(buildExportFields('articles', ['tags.tags_id.name', 'tags.tags_id.id'], createSchema())).toEqual([
+			'tags.tags_id.name',
+			'tags.tags_id.id',
+		]);
+	});
+
+	it('never exports a display field that the current role cannot read', () => {
+		const metadata = createSchema({ denied: ['directus_users.avatar', 'directus_users.email'] });
+		const fields = buildExportFields('articles', ['title', 'editor'], metadata);
+
+		expect(fields).not.toContain('editor.email');
+		expect(fields).not.toContain('editor.avatar.id');
 	});
 });

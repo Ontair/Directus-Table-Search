@@ -16,7 +16,7 @@ function getWithArrays(value: unknown, segments: string[]): unknown {
 }
 
 function getArrayValues(value: unknown[], key: string): unknown {
-	const result = value.map((entry) => getProperty(entry, key)).filter(Boolean);
+	const result = value.map((entry) => getProperty(entry, key)).filter((entry) => entry !== undefined && entry !== null);
 	return result.length > 0 ? result.flat() : undefined;
 }
 

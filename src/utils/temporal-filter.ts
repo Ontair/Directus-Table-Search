@@ -1,7 +1,7 @@
 import type { FilterNode, SearchLeaf } from '../types';
 
 type TemporalComponent = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
-export type TemporalFilterType = 'date' | 'dateTime' | 'time' | 'timestamp';
+export type TemporalFilterType = 'date' | 'dateTime' | 'time';
 
 export interface TemporalFilterParts {
 	day?: string;
@@ -227,7 +227,7 @@ function impossibleTemporalCondition(leaf: SearchLeaf): FilterNode {
 }
 
 function isTemporalType(type: string): type is TemporalFilterType {
-	return type === 'date' || type === 'dateTime' || type === 'time' || type === 'timestamp';
+	return type === 'date' || type === 'dateTime' || type === 'time';
 }
 
 function isComponentAllowed(type: TemporalFilterType, component: TemporalComponent): boolean {

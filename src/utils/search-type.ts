@@ -10,6 +10,7 @@ export function getSearchValueKind(type: string): SearchValueKind {
 	if (type === 'uuid') return 'uuid';
 	if (type === 'date') return 'date';
 	if (type === 'time') return 'time';
-	if (type === 'dateTime' || type === 'timestamp') return 'dateTime';
+	if (type === 'dateTime') return 'dateTime';
+	if (type === 'timestamp') return 'timestamp';
 	return 'unsupported';
 }
