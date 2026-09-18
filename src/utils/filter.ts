@@ -9,6 +9,17 @@ import type {
 import { getSearchValueKind } from './search-type';
 import { buildPartialTemporalCondition } from './temporal-filter';
 
+export interface FilterBuildOptions {
+	timestampTimezoneOffset?: (parts: {
+		day: string;
+		hour: string;
+		minute: string;
+		month: string;
+		second: string;
+		year: string;
+	}) => number;
+}
+
 export const MAX_SEARCH_TERM_LENGTH = 256;
 export const MAX_SEARCH_TOKEN_COUNT = 12;
 export const MAX_GENERATED_SEARCH_CLAUSES = 256;
@@ -44,8 +55,12 @@ export function buildGlobalSearchFilterResult(
 	return { filter: null, status: 'unsupported' };
 }
 
-export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValues): FilterNode | null {
-	return buildColumnFiltersResult(plans, values).filter;
+export function buildColumnFilters(
+	plans: ColumnPlan[],
+	values: ColumnFilterValues,
+	options: FilterBuildOptions = {},
+): FilterNode | null {
+	return buildColumnFiltersResult(plans, values, options).filter;
 }
 
 /**
@@ -54,7 +69,11 @@ export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValu
  * value was typed into, and a notice naming the column is the difference
  * between a fixable mistake and an empty table without a reason.
  */
-export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilterValues): ColumnFilterBuildResult {
+export function buildColumnFiltersResult(
+	plans: ColumnPlan[],
+	values: ColumnFilterValues,
+	options: FilterBuildOptions = {},
+): ColumnFilterBuildResult {
 	const conditions: FilterNode[] = [];
 	const invalidKeys: string[] = [];
 	const limitedKeys: string[] = [];
@@ -80,7 +99,7 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 			continue;
 		}
 
-		const columnCondition = buildPlanCondition(plan, term, true);
+		const columnCondition = buildPlanCondition(plan, term, true, options);
 		if (columnCondition) conditions.push(columnCondition);
 		else {
 			invalidKeys.push(plan.key);
@@ -106,9 +125,16 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 	return { filter: null, invalidKeys, limitedKeys, status: 'unsupported', unsupportedKeys };
 }
 
-function buildPlanCondition(plan: ColumnPlan, term: string, partialTemporal: boolean): FilterNode | null {
+function buildPlanCondition(
+	plan: ColumnPlan,
+	term: string,
+	partialTemporal: boolean,
+	options: FilterBuildOptions = {},
+): FilterNode | null {
 	const wholeValueConditions = plan.searchLeaves
-		.map((leaf) => (partialTemporal ? buildColumnLeafCondition(leaf, term) : buildGlobalLeafCondition(leaf, term)))
+		.map((leaf) =>
+			partialTemporal ? buildColumnLeafCondition(leaf, term, options) : buildGlobalLeafCondition(leaf, term),
+		)
 		.filter(isFilterNode);
 	const tokenizedTextCondition = buildTokenizedTextCondition(plan.searchLeaves, term);
 
@@ -141,10 +167,17 @@ function buildTokenizedTextCondition(leaves: SearchLeaf[], term: string): Filter
 	);
 }
 
-function buildColumnLeafCondition(leaf: SearchLeaf, term: string): FilterNode | null {
+function buildColumnLeafCondition(leaf: SearchLeaf, term: string, options: FilterBuildOptions): FilterNode | null {
 	const kind = getSearchValueKind(leaf.type);
-	if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
-		return buildPartialTemporalCondition(leaf, term);
+	if (kind === 'timestamp' && !term.startsWith('@t:')) {
+		const exactCondition = buildLeafCondition(leaf, term);
+		if (exactCondition) return exactCondition;
+	}
+
+	if (kind === 'date' || kind === 'dateTime' || kind === 'time' || kind === 'timestamp') {
+		return buildPartialTemporalCondition(leaf, term, {
+			...(options.timestampTimezoneOffset ? { timestampTimezoneOffset: options.timestampTimezoneOffset } : {}),
+		});
 	}
 	return buildLeafCondition(leaf, term);
 }

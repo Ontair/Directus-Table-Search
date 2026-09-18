@@ -60,8 +60,7 @@ describe('column filter controls', () => {
 		expect(getColumnFilterControlConfig('uuid')).toMatchObject({ inputType: 'text', placeholder: 'Exact UUID…' });
 		expect(getColumnFilterControlConfig('timestamp')).toMatchObject({
 			inputType: 'text',
-			placeholder: 'Exact ISO timestamp…',
-			visibleHint: 'Exact ISO value',
+			placeholder: 'DD.MM.YYYY, HH:MM:SS',
 		});
 		expect(getColumnFilterControlConfig('unsupported')).toEqual({
 			inputType: 'text',

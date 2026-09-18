@@ -302,20 +302,33 @@ describe('Directus filter integration', () => {
 		}
 	});
 
-	it('rejects timezone-blind partial timestamp filters safely', async () => {
+	it('converts a browser-local timestamp to UTC before filtering PostgreSQL', async () => {
 		const metadata = await loadMetadata(admin);
 		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
-		const result = buildColumnFiltersResult(plans, {
-			recorded_at: encodeTemporalFilterValue({ minute: '10' }),
-		});
+		const result = buildColumnFiltersResult(
+			plans,
+			{
+				recorded_at: encodeTemporalFilterValue({
+					day: '10',
+					hour: '15',
+					minute: '34',
+					month: '09',
+					second: '00',
+					year: '2026',
+				}),
+			},
+			{
+				timestampTimezoneOffset: () => -180,
+			},
+		);
 		const response = await admin.getItems(collections.articles, {
 			fields: ['slug'],
 			filter: result.filter,
 		});
 
-		expect(result.status).toBe('invalid');
+		expect(result.status).toBe('valid');
 		expect(response.status, JSON.stringify(response.body)).toBe(200);
-		expect(response.data).toEqual([]);
+		expect(response.data.map((item) => item.slug)).toContain('article-01');
 	});
 
 	it('keeps server pagination and sorting stable', async () => {

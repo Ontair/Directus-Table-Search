@@ -1,7 +1,7 @@
 import type { FilterNode, SearchLeaf } from '../types';
 
 type TemporalComponent = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
-export type TemporalFilterType = 'date' | 'dateTime' | 'time';
+export type TemporalFilterType = 'date' | 'dateTime' | 'time' | 'timestamp';
 
 export interface TemporalFilterParts {
 	day?: string;
@@ -18,6 +18,10 @@ interface ParsedTemporalValue {
 	structured: boolean;
 }
 
+export interface TemporalFilterOptions {
+	timestampTimezoneOffset?: (parts: Required<TemporalFilterParts>) => number;
+}
+
 const STRUCTURED_VALUE_PREFIX = '@t:';
 const STRUCTURED_PART_ORDER = ['year', 'month', 'day', 'hour', 'minute', 'second'] as const;
 
@@ -32,10 +36,16 @@ const TIME_COMPONENTS = [
 	{ component: 'second', max: 59, min: 0, width: 2 },
 ] as const;
 
-export function buildPartialTemporalCondition(leaf: SearchLeaf, rawValue: string): FilterNode | null {
+export function buildPartialTemporalCondition(
+	leaf: SearchLeaf,
+	rawValue: string,
+	options: TemporalFilterOptions = {},
+): FilterNode | null {
 	if (!isTemporalType(leaf.type)) return null;
 
 	const parsed = parseTemporalValue(leaf.type, rawValue.trim());
+	if (leaf.type === 'timestamp') return buildTimestampCondition(leaf, parsed, options);
+
 	const conditions: FilterNode[] = [];
 	let invalid = parsed.invalid;
 
@@ -222,16 +232,148 @@ function nestFunctionPath(path: string, functionName: TemporalComponent, operati
 }
 
 function impossibleTemporalCondition(leaf: SearchLeaf): FilterNode {
+	if (leaf.type === 'timestamp') {
+		return { _and: [nestFieldPath(leaf.path, { _null: true }), nestFieldPath(leaf.path, { _nnull: true })] };
+	}
+
 	const functionName = leaf.type === 'time' ? 'hour' : 'day';
 	return nestFunctionPath(leaf.path, functionName, { _eq: leaf.type === 'time' ? -1 : 0 });
 }
 
 function isTemporalType(type: string): type is TemporalFilterType {
-	return type === 'date' || type === 'dateTime' || type === 'time';
+	return type === 'date' || type === 'dateTime' || type === 'time' || type === 'timestamp';
 }
 
 function isComponentAllowed(type: TemporalFilterType, component: TemporalComponent): boolean {
 	if (type === 'date') return component === 'day' || component === 'month' || component === 'year';
 	if (type === 'time') return component === 'hour' || component === 'minute' || component === 'second';
 	return true;
+}
+
+type TimestampPrecision = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
+
+function buildTimestampCondition(
+	leaf: SearchLeaf,
+	parsed: ParsedTemporalValue,
+	options: TemporalFilterOptions,
+): FilterNode {
+	if (parsed.invalid) return impossibleTemporalCondition(leaf);
+
+	const normalized = normalizeTimestampParts(parsed.parts);
+	if (!normalized) return impossibleTemporalCondition(leaf);
+
+	const start = localTimestampToUtc(normalized.parts, options.timestampTimezoneOffset);
+	if (!start) return impossibleTemporalCondition(leaf);
+	if (normalized.precision === 'second') return nestFieldPath(leaf.path, { _eq: start.toISOString() });
+
+	const nextLocalParts = incrementLocalTimestamp(normalized.parts, normalized.precision);
+	const end = localTimestampToUtc(nextLocalParts, options.timestampTimezoneOffset);
+	if (!end || end.getTime() <= start.getTime()) return impossibleTemporalCondition(leaf);
+
+	return nestFieldPath(leaf.path, { _gte: start.toISOString(), _lt: end.toISOString() });
+}
+
+function normalizeTimestampParts(
+	parts: TemporalFilterParts,
+): { parts: Required<TemporalFilterParts>; precision: TimestampPrecision } | null {
+	const ordered = [parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second];
+	const firstMissing = ordered.findIndex((value) => value === undefined);
+	const populatedLength = firstMissing === -1 ? ordered.length : firstMissing;
+	if (populatedLength === 0 || ordered.slice(populatedLength).some((value) => value !== undefined)) return null;
+
+	const widths = [4, 2, 2, 2, 2, 2];
+	for (let index = 0; index < populatedLength; index += 1) {
+		if (!new RegExp(`^\\d{${widths[index]}}$`).test(ordered[index]!)) return null;
+	}
+
+	const normalized: Required<TemporalFilterParts> = {
+		day: parts.day ?? '01',
+		hour: parts.hour ?? '00',
+		minute: parts.minute ?? '00',
+		month: parts.month ?? '01',
+		second: parts.second ?? '00',
+		year: parts.year!,
+	};
+	const precision = (['year', 'month', 'day', 'hour', 'minute', 'second'] as const)[populatedLength - 1]!;
+
+	return isValidTimestampParts(normalized) ? { parts: normalized, precision } : null;
+}
+
+function isValidTimestampParts(parts: Required<TemporalFilterParts>): boolean {
+	const year = Number(parts.year);
+	const month = Number(parts.month);
+	const day = Number(parts.day);
+	const hour = Number(parts.hour);
+	const minute = Number(parts.minute);
+	const second = Number(parts.second);
+	if (year < 1 || month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return false;
+
+	return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function localTimestampToUtc(
+	parts: Required<TemporalFilterParts>,
+	offsetResolver: TemporalFilterOptions['timestampTimezoneOffset'],
+): Date | null {
+	const offset = offsetResolver?.(parts) ?? browserTimezoneOffset(parts);
+	if (!Number.isInteger(offset) || Math.abs(offset) > 14 * 60) return null;
+
+	const timestamp = createUtcDate(parts).getTime() + offset * 60_000;
+	const date = new Date(timestamp);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function browserTimezoneOffset(parts: Required<TemporalFilterParts>): number {
+	const local = new Date(0);
+	local.setFullYear(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+	local.setHours(Number(parts.hour), Number(parts.minute), Number(parts.second), 0);
+	if (
+		local.getFullYear() !== Number(parts.year) ||
+		local.getMonth() !== Number(parts.month) - 1 ||
+		local.getDate() !== Number(parts.day) ||
+		local.getHours() !== Number(parts.hour) ||
+		local.getMinutes() !== Number(parts.minute) ||
+		local.getSeconds() !== Number(parts.second)
+	) {
+		return Number.NaN;
+	}
+
+	return local.getTimezoneOffset();
+}
+
+function incrementLocalTimestamp(
+	parts: Required<TemporalFilterParts>,
+	precision: Exclude<TimestampPrecision, 'second'>,
+): Required<TemporalFilterParts> {
+	const next = createUtcDate(parts);
+
+	if (precision === 'year') next.setUTCFullYear(next.getUTCFullYear() + 1);
+	else if (precision === 'month') next.setUTCMonth(next.getUTCMonth() + 1);
+	else if (precision === 'day') next.setUTCDate(next.getUTCDate() + 1);
+	else if (precision === 'hour') next.setUTCHours(next.getUTCHours() + 1);
+	else next.setUTCMinutes(next.getUTCMinutes() + 1);
+
+	return {
+		day: String(next.getUTCDate()).padStart(2, '0'),
+		hour: String(next.getUTCHours()).padStart(2, '0'),
+		minute: String(next.getUTCMinutes()).padStart(2, '0'),
+		month: String(next.getUTCMonth() + 1).padStart(2, '0'),
+		second: String(next.getUTCSeconds()).padStart(2, '0'),
+		year: String(next.getUTCFullYear()).padStart(4, '0'),
+	};
+}
+
+function createUtcDate(parts: Required<TemporalFilterParts>): Date {
+	const date = new Date(0);
+	date.setUTCFullYear(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+	date.setUTCHours(Number(parts.hour), Number(parts.minute), Number(parts.second), 0);
+	return date;
+}
+
+function nestFieldPath(path: string, operation: FilterNode): FilterNode {
+	return path
+		.split('.')
+		.filter(Boolean)
+		.reverse()
+		.reduce<FilterNode>((child, segment) => ({ [segment]: child }), operation);
 }

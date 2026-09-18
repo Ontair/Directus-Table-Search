@@ -91,8 +91,77 @@ describe('partial temporal filters', () => {
 		});
 	});
 
-	it('does not apply timezone-blind date-part functions to timestamp fields', () => {
-		expect(buildPartialTemporalCondition({ path: 'event.recorded_at', type: 'timestamp' }, '01.01.2026 1')).toBeNull();
+	it('converts a complete local timestamp to the real UTC value', () => {
+		const value = encodeTemporalFilterValue({
+			day: '06',
+			hour: '09',
+			minute: '42',
+			month: '06',
+			second: '00',
+			year: '2026',
+		});
+
+		expect(
+			buildPartialTemporalCondition({ path: 'event.recorded_at', type: 'timestamp' }, value, {
+				timestampTimezoneOffset: () => -180,
+			}),
+		).toEqual({ event: { recorded_at: { _eq: '2026-06-06T06:42:00.000Z' } } });
+
+		expect(
+			buildPartialTemporalCondition({ path: 'recorded_at', type: 'timestamp' }, value, {
+				timestampTimezoneOffset: () => 420,
+			}),
+		).toEqual({ recorded_at: { _eq: '2026-06-06T16:42:00.000Z' } });
+	});
+
+	it('handles UTC date rollover and minute precision', () => {
+		expect(
+			buildPartialTemporalCondition(
+				{ path: 'recorded_at', type: 'timestamp' },
+				encodeTemporalFilterValue({
+					day: '01',
+					hour: '01',
+					minute: '30',
+					month: '01',
+					year: '2026',
+				}),
+				{ timestampTimezoneOffset: () => -180 },
+			),
+		).toEqual({
+			recorded_at: {
+				_gte: '2025-12-31T22:30:00.000Z',
+				_lt: '2025-12-31T22:31:00.000Z',
+			},
+		});
+	});
+
+	it('resolves the timezone independently at DST interval boundaries', () => {
+		const offsetAtNewYorkBoundary = (parts: { day: string }) => (parts.day === '08' ? 300 : 240);
+
+		expect(
+			buildPartialTemporalCondition(
+				{ path: 'recorded_at', type: 'timestamp' },
+				encodeTemporalFilterValue({ day: '08', month: '03', year: '2026' }),
+				{ timestampTimezoneOffset: offsetAtNewYorkBoundary as () => number },
+			),
+		).toEqual({
+			recorded_at: {
+				_gte: '2026-03-08T05:00:00.000Z',
+				_lt: '2026-03-09T04:00:00.000Z',
+			},
+		});
+	});
+
+	it('rejects a timestamp until its local calendar context is unambiguous', () => {
+		expect(
+			buildPartialTemporalCondition(
+				{ path: 'recorded_at', type: 'timestamp' },
+				encodeTemporalFilterValue({ day: '06' }),
+				{ timestampTimezoneOffset: () => -180 },
+			),
+		).toEqual({
+			_and: [{ recorded_at: { _null: true } }, { recorded_at: { _nnull: true } }],
+		});
 	});
 
 	it('uses valid no-match conditions for invalid input', () => {

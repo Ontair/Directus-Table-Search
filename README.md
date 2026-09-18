@@ -9,7 +9,7 @@ A schema-independent Directus layout extension for searching and filtering reada
 - Choice labels configured on standard Directus interfaces and displays are translated back to their stored values.
 - M2O, O2M, M2M, nested fields, and system-user displays use Directus relation metadata rather than schema-specific names.
 - Each visible column has an independent filter. Display fields inside one relational column are combined with OR; different columns are combined with AND.
-- Date, datetime, and time column filters expose independent `DD.MM.YYYY` and `HH:MM:SS` segments. Users can start with any component, the active segment is highlighted, completed segments advance automatically, impossible prefixes are zero-padded like a native date input, and every populated component is applied immediately. Timestamp filters accept an exact ISO timestamp to preserve timezone semantics.
+- Date, datetime, timestamp, and time column filters use segmented `DD.MM.YYYY` and `HH:MM:SS` input. Timestamp values are entered in the browser's local time and translated to UTC before Directus receives the filter; the timezone offset is resolved for the entered date so daylight-saving transitions are respected.
 - Column filters can use a responsive panel or a column-aligned row. Aligned filters follow resized column widths and expand over adjacent cells while focused so long values remain easy to edit without changing table geometry.
 - Existing user and system filters stay active and are combined with the generated filters.
 - Read permissions are checked for every field and relation hop before a query or filter path is generated.
@@ -47,7 +47,7 @@ The extension converts the Data Studio search term into a Directus filter:
 - text-like fields use `_icontains`;
 - UUID, integer, bigint, decimal, and other numeric fields use exact matching. Their column controls keep an **Exact value** hint visible because partial matching is not supported by the portable Directus filter API;
 - date and datetime fields accept exact storage values, rendered `DD.MM.YYYY` values, and a four-digit year in global search; their column filters additionally use Directus date-part functions so independently populated components can be combined safely;
-- timestamp fields require an exact ISO value so their meaning is not silently changed by database or user time zones;
+- timestamp column filters translate a complete local date and optional time precision into an exact UTC value or interval; lower components are applied only after the preceding calendar components make the conversion unambiguous;
 - unsupported values such as JSON, binary, geometry, and presentation-only aliases are not included.
 
 To prevent pasted text from producing an excessively large Directus filter, one search value is limited to 256 characters, 12 whitespace-separated tokens, and an estimated 256 generated clauses. The layout rejects a larger expression before sending it and shows a visible explanation. Ordinary typing remains unaffected.
@@ -133,4 +133,4 @@ The domain logic under `src/utils/` is framework-independent and covered by unit
 - Display rendering is not generally reversible. Standard configured choice labels and declared display fields are searchable; arbitrary formatting performed inside a custom display cannot be translated back into a database filter. A custom display that does not declare its required `fields` can only be searched through the visible field value itself.
 - Global date/time search intentionally treats an unseparated four-digit number as a year. Other partial components remain scoped to column filters, where their meaning is unambiguous.
 - UUID, integer, bigint, decimal, and other numeric values require a complete exact value.
-- Timestamp values require a complete ISO timestamp. Partial date/time component matching remains available for timezone-independent `date`, `dateTime`, and `time` fields.
+- Timestamp conversion requires an unambiguous calendar prefix (`year`, then optional `month`, `day`, `hour`, `minute`, and `second`). A standalone timestamp day or clock component cannot be converted correctly across all calendar dates and timezones through Directus' portable filter API.
