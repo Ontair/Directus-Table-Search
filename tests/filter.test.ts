@@ -164,6 +164,7 @@ describe('filter generation', () => {
 		expect(buildColumnFiltersResult(plans, { 'editor.email': 'anything' })).toEqual({
 			filter: impossible,
 			invalidKeys: [],
+			limitedKeys: [],
 			status: 'unsupported',
 			unsupportedKeys: ['editor.email'],
 		});
@@ -182,6 +183,7 @@ describe('filter generation', () => {
 				_and: [{ title: { _icontains: 'guide' } }, { _and: [{ id: { _null: true } }, { id: { _nnull: true } }] }],
 			},
 			invalidKeys: [],
+			limitedKeys: [],
 			status: 'unsupported',
 			unsupportedKeys: ['editor.email'],
 		});
@@ -206,6 +208,7 @@ describe('filter generation', () => {
 		expect(buildColumnFiltersResult(plans, { title: 'guide' })).toEqual({
 			filter: { title: { _icontains: 'guide' } },
 			invalidKeys: [],
+			limitedKeys: [],
 			status: 'valid',
 			unsupportedKeys: [],
 		});
@@ -222,6 +225,7 @@ describe('filter generation', () => {
 		expect(buildColumnFiltersResult(unsupportedPlans, { payload: 'anything' })).toEqual({
 			filter: expected,
 			invalidKeys: [],
+			limitedKeys: [],
 			status: 'unsupported',
 			unsupportedKeys: ['payload'],
 		});
@@ -236,6 +240,7 @@ describe('filter generation', () => {
 		expect(buildColumnFiltersResult(uuidPlans, { owner: 'partial-uuid' })).toEqual({
 			filter: expected,
 			invalidKeys: ['owner'],
+			limitedKeys: [],
 			status: 'invalid',
 			unsupportedKeys: [],
 		});
@@ -255,10 +260,52 @@ describe('filter generation', () => {
 		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59Z')).toEqual({
 			starts_at: { _eq: '2026-01-01T23:59Z' },
 		});
-		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+23:59')).toEqual({
-			starts_at: { _eq: '2026-01-01T23:59+23:59' },
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+23:59')).toBeNull();
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+14:00')).toEqual({
+			starts_at: { _eq: '2026-01-01T23:59+14:00' },
 		});
+		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+14:01')).toBeNull();
 		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+24:00')).toBeNull();
 		expect(buildLeafCondition({ path: 'starts_at', type: 'dateTime' }, '2026-01-01T23:59+01:60')).toBeNull();
+	});
+
+	it('matches configured display choice labels without hardcoded schema values', () => {
+		const leaf = {
+			choices: [
+				{ text: 'Needs review', value: 'pending' },
+				{ text: 'Ready to publish', value: 'ready' },
+			],
+			path: 'status',
+			type: 'string',
+		};
+
+		expect(buildLeafCondition(leaf, 'publish')).toEqual({
+			_or: [{ status: { _icontains: 'publish' } }, { status: { _eq: 'ready' } }],
+		});
+	});
+
+	it('rejects oversized and highly tokenized searches before expanding the filter tree', () => {
+		const expected = { _and: [{ title: { _null: true } }, { title: { _nnull: true } }] };
+		const longTerm = 'x'.repeat(257);
+		const manyTokens = Array.from({ length: 13 }, (_, index) => `word${index}`).join(' ');
+		const broadPlans = Array.from({ length: 22 }, (_, index) => ({
+			key: `field_${index}`,
+			searchLeaves: [{ path: `field_${index}`, type: 'string' }],
+		}));
+		const twelveTokens = Array.from({ length: 12 }, (_, index) => `term${index}`).join(' ');
+
+		expect(buildGlobalSearchFilterResult(plans, longTerm)).toEqual({ filter: expected, status: 'limited' });
+		expect(buildGlobalSearchFilterResult(plans, manyTokens)).toEqual({ filter: expected, status: 'limited' });
+		expect(buildGlobalSearchFilterResult(broadPlans, twelveTokens)).toEqual({
+			filter: { _and: [{ field_0: { _null: true } }, { field_0: { _nnull: true } }] },
+			status: 'limited',
+		});
+		expect(buildColumnFiltersResult(plans, { title: longTerm })).toEqual({
+			filter: expected,
+			invalidKeys: [],
+			limitedKeys: ['title'],
+			status: 'limited',
+			unsupportedKeys: [],
+		});
 	});
 });

@@ -1,6 +1,6 @@
 import type { Field } from '@directus/types';
 
-import type { ColumnPlan, MetadataAccess, ResolvedFieldPath, SearchLeaf } from '../types';
+import type { ColumnPlan, MetadataAccess, ResolvedFieldPath, SearchChoice, SearchLeaf } from '../types';
 import { getReadableDisplayPaths } from './display-path';
 import { resolveReadableFieldPath } from './field-path';
 
@@ -49,7 +49,10 @@ export function buildColumnPlan(collection: string, key: string, metadata: Metad
 	const searchLeaves = uniqueLeaves(
 		resolved
 			.filter(({ field }) => isSearchable(field))
-			.map(({ field, path }): SearchLeaf => ({ path, type: field.type })),
+			.map(({ field, path }): SearchLeaf => {
+				const choices = getSearchChoices(field);
+				return { ...(choices.length > 0 ? { choices } : {}), path, type: field.type };
+			}),
 	);
 
 	const guardPath = searchLeaves.length === 0 ? getGuardPath(collection, resolvedVisibleField, metadata) : null;
@@ -108,6 +111,29 @@ function isSearchable(field: Field): boolean {
 	return (
 		!NON_SEARCHABLE_TYPES.has(field.type) &&
 		!(field.meta?.special ?? []).some((special) => NON_SEARCHABLE_SPECIALS.has(special))
+	);
+}
+
+function getSearchChoices(field: Field): SearchChoice[] {
+	const sources = [field.meta?.options, field.meta?.display_options];
+	const choices: SearchChoice[] = [];
+
+	for (const source of sources) {
+		if (!source || typeof source !== 'object') continue;
+		const configured = (source as Record<string, unknown>).choices;
+		if (!Array.isArray(configured)) continue;
+
+		for (const choice of configured) {
+			if (!choice || typeof choice !== 'object') continue;
+			const { text, value } = choice as Record<string, unknown>;
+			if (typeof text !== 'string' || !['boolean', 'number', 'string'].includes(typeof value)) continue;
+			choices.push({ text, value: value as SearchChoice['value'] });
+		}
+	}
+
+	return choices.filter(
+		(choice, index) =>
+			choices.findIndex((candidate) => candidate.text === choice.text && candidate.value === choice.value) === index,
 	);
 }
 

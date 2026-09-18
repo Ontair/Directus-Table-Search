@@ -6,6 +6,7 @@ import { buildColumnPlans } from '../../src/utils/column-plan';
 import { buildDisplayQuery } from '../../src/utils/display-query';
 import {
 	buildColumnFilters,
+	buildColumnFiltersResult,
 	buildGlobalSearchFilter,
 	buildGlobalSearchFilterResult,
 	combineFilters,
@@ -164,7 +165,7 @@ describe('Directus filter integration', () => {
 	it('rejects invalid global datetime offsets without sending an unsafe database value', async () => {
 		const metadata = await loadMetadata(admin);
 		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
-		const result = buildGlobalSearchFilterResult(plans, '2026-09-10T12:34:00+99:99');
+		const result = buildGlobalSearchFilterResult(plans, '2026-09-10T12:34:00+23:59');
 		const response = await admin.getItems(collections.articles, {
 			fields: ['slug'],
 			filter: result.filter,
@@ -207,7 +208,7 @@ describe('Directus filter integration', () => {
 			{ field: 'active', term: 'false', slug: 'article-02' },
 			{ field: 'published_on', term: '2026-09-10', slug: 'article-01' },
 			{ field: 'starts_at', term: '2026-09-10T12:34:00', slug: 'article-01' },
-			{ field: 'recorded_at', term: '10.09.2026 12:34:00', slug: 'article-01' },
+			{ field: 'recorded_at', term: '2026-09-10T12:34:00Z', slug: 'article-01' },
 			{ field: 'opens_at', term: '12:34:00', slug: 'article-01' },
 			{ field: 'external_id', term: '123e4567-e89b-42d3-a456-426614174000', slug: 'article-01' },
 		];
@@ -251,7 +252,7 @@ describe('Directus filter integration', () => {
 		}
 	});
 
-	it('executes independent date, datetime, timestamp and time segments', async () => {
+	it('executes independent date, datetime and time segments', async () => {
 		const metadata = await loadMetadata(admin);
 		const cases = [
 			{
@@ -280,12 +281,6 @@ describe('Directus filter integration', () => {
 			},
 			{
 				excluded: 'article-11',
-				field: 'recorded_at',
-				included: 'article-10',
-				term: encodeTemporalFilterValue({ minute: '10' }),
-			},
-			{
-				excluded: 'article-11',
 				field: 'opens_at',
 				included: 'article-10',
 				term: encodeTemporalFilterValue({ minute: '10' }),
@@ -305,6 +300,22 @@ describe('Directus filter integration', () => {
 			expect(slugs, testCase.field).toContain(testCase.included);
 			expect(slugs, testCase.field).not.toContain(testCase.excluded);
 		}
+	});
+
+	it('rejects timezone-blind partial timestamp filters safely', async () => {
+		const metadata = await loadMetadata(admin);
+		const plans = buildColumnPlans(collections.articles, ['recorded_at'], metadata);
+		const result = buildColumnFiltersResult(plans, {
+			recorded_at: encodeTemporalFilterValue({ minute: '10' }),
+		});
+		const response = await admin.getItems(collections.articles, {
+			fields: ['slug'],
+			filter: result.filter,
+		});
+
+		expect(result.status).toBe('invalid');
+		expect(response.status, JSON.stringify(response.body)).toBe(200);
+		expect(response.data).toEqual([]);
 	});
 
 	it('keeps server pagination and sorting stable', async () => {

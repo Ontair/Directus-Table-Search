@@ -4,15 +4,15 @@ export type FilterNode = Record<string, unknown>;
 
 export type FilterBuildResult =
 	| { filter: null; status: 'empty' | 'unsupported' }
-	| { filter: FilterNode; status: 'unsupported' }
-	| { filter: FilterNode; status: 'invalid' | 'valid' };
+	| { filter: FilterNode; status: 'invalid' | 'limited' | 'unsupported' | 'valid' };
 
 export type FilterStatus = FilterBuildResult['status'];
 
-export type ColumnFilterIssue = 'invalid' | 'unsupported';
+export type ColumnFilterIssue = 'invalid' | 'limited' | 'unsupported';
 
 export type ColumnFilterBuildResult = FilterBuildResult & {
 	invalidKeys: string[];
+	limitedKeys: string[];
 	unsupportedKeys: string[];
 };
 
@@ -24,7 +24,16 @@ export type TableSpacing = 'compact' | 'cozy' | 'comfortable';
 
 export type ColumnFilterMode = 'inline' | 'panel';
 
-export type SearchValueKind = 'boolean' | 'date' | 'dateTime' | 'number' | 'text' | 'time' | 'unsupported' | 'uuid';
+export type SearchValueKind =
+	| 'boolean'
+	| 'date'
+	| 'dateTime'
+	| 'number'
+	| 'text'
+	| 'time'
+	| 'timestamp'
+	| 'unsupported'
+	| 'uuid';
 
 export type ColumnFilterControlKind = SearchValueKind | 'mixed';
 
@@ -67,8 +76,14 @@ export interface TableHeader {
 }
 
 export interface SearchLeaf {
+	choices?: SearchChoice[];
 	path: string;
 	type: string;
+}
+
+export interface SearchChoice {
+	text: string;
+	value: boolean | number | string;
 }
 
 export interface ColumnPlan {

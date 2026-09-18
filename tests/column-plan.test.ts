@@ -85,6 +85,39 @@ describe('buildColumnPlans', () => {
 			{ guardPath: 'binary_payload', key: 'binary_payload', searchLeaves: [] },
 		]);
 	});
+
+	it('keeps configured choice labels with their stored values', () => {
+		const baseMetadata = createSchema();
+		const status = field('articles', 'status', 'string', {
+			interfaceOptions: {
+				choices: [
+					{ text: 'Draft article', value: 'draft' },
+					{ text: 'Published article', value: 'published' },
+				],
+			},
+		});
+		const metadata = {
+			...baseMetadata,
+			getField: (collection: string, fieldName: string) =>
+				collection === 'articles' && fieldName === 'status' ? status : baseMetadata.getField(collection, fieldName),
+		};
+
+		expect(buildColumnPlans('articles', ['status'], metadata)).toEqual([
+			{
+				key: 'status',
+				searchLeaves: [
+					{
+						choices: [
+							{ text: 'Draft article', value: 'draft' },
+							{ text: 'Published article', value: 'published' },
+						],
+						path: 'status',
+						type: 'string',
+					},
+				],
+			},
+		]);
+	});
 	it('guards a column whose nested field the current role cannot read', () => {
 		const metadata = createSchema({ denied: ['directus_users.email'] });
 

@@ -5,6 +5,7 @@ export interface ColumnFilterControlConfig {
 	helpText?: string;
 	inputType: 'date' | 'datetime-local' | 'text' | 'time';
 	placeholder: string;
+	visibleHint?: string;
 }
 
 export function buildColumnFilterKinds(plans: ColumnPlan[]): Record<string, ColumnFilterControlKind> {
@@ -25,6 +26,7 @@ export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): Col
 			helpText: "Enter the complete numeric value; partial matching isn't supported.",
 			inputType: 'text',
 			placeholder: 'Full number only…',
+			visibleHint: 'Exact value',
 		};
 	}
 
@@ -49,6 +51,16 @@ export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): Col
 			helpText: 'UUID fields are matched by exact value.',
 			inputType: 'text',
 			placeholder: 'Exact UUID…',
+			visibleHint: 'Exact value',
+		};
+	}
+
+	if (kind === 'timestamp') {
+		return {
+			helpText: 'Enter the complete ISO timestamp. Partial local-time matching is not timezone-safe.',
+			inputType: 'text',
+			placeholder: 'Exact ISO timestamp…',
+			visibleHint: 'Exact ISO value',
 		};
 	}
 

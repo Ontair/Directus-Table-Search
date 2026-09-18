@@ -170,6 +170,7 @@ export default defineLayout<LayoutOptions, LayoutQuery>({
 			Object.fromEntries([
 				...perColumnFilters.value.unsupportedKeys.map((key) => [key, 'unsupported'] as const),
 				...perColumnFilters.value.invalidKeys.map((key) => [key, 'invalid'] as const),
+				...perColumnFilters.value.limitedKeys.map((key) => [key, 'limited'] as const),
 			]),
 		);
 		const effectiveFilter = computed<Filter | null>(

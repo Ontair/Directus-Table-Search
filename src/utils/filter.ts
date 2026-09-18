@@ -9,6 +9,10 @@ import type {
 import { getSearchValueKind } from './search-type';
 import { buildPartialTemporalCondition } from './temporal-filter';
 
+export const MAX_SEARCH_TERM_LENGTH = 256;
+export const MAX_SEARCH_TOKEN_COUNT = 12;
+export const MAX_GENERATED_SEARCH_CLAUSES = 256;
+
 export function buildGlobalSearchFilter(plans: ColumnPlan[], rawTerm: string | null | undefined): FilterNode | null {
 	return buildGlobalSearchFilterResult(plans, rawTerm).filter;
 }
@@ -21,6 +25,14 @@ export function buildGlobalSearchFilterResult(
 	if (!term) return { filter: null, status: 'empty' };
 
 	const leaves = uniqueLeaves(plans.flatMap((plan) => plan.searchLeaves));
+	if (exceedsSearchLimits(leaves, term)) {
+		if (leaves[0]) return { filter: impossibleLeafCondition(leaves[0]), status: 'limited' };
+		const guardPath = plans.find(({ guardPath }) => guardPath)?.guardPath;
+		return guardPath
+			? { filter: impossiblePathCondition(guardPath), status: 'limited' }
+			: { filter: null, status: 'unsupported' };
+	}
+
 	const conditions = plans.map((plan) => buildPlanCondition(plan, term, false)).filter(isFilterNode);
 	const filter = combineWithOr(conditions);
 
@@ -45,6 +57,7 @@ export function buildColumnFilters(plans: ColumnPlan[], values: ColumnFilterValu
 export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilterValues): ColumnFilterBuildResult {
 	const conditions: FilterNode[] = [];
 	const invalidKeys: string[] = [];
+	const limitedKeys: string[] = [];
 	const unsupportedKeys: string[] = [];
 	let hasActiveValue = false;
 	let needsFallbackGuard = false;
@@ -61,6 +74,12 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 			continue;
 		}
 
+		if (exceedsSearchLimits(plan.searchLeaves, term)) {
+			limitedKeys.push(plan.key);
+			conditions.push(impossibleLeafCondition(plan.searchLeaves[0]!));
+			continue;
+		}
+
 		const columnCondition = buildPlanCondition(plan, term, true);
 		if (columnCondition) conditions.push(columnCondition);
 		else {
@@ -69,7 +88,7 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 		}
 	}
 
-	if (!hasActiveValue) return { filter: null, invalidKeys, status: 'empty', unsupportedKeys };
+	if (!hasActiveValue) return { filter: null, invalidKeys, limitedKeys, status: 'empty', unsupportedKeys };
 
 	if (needsFallbackGuard) {
 		const fallbackLeaf = plans.flatMap((plan) => plan.searchLeaves)[0];
@@ -78,12 +97,13 @@ export function buildColumnFiltersResult(plans: ColumnPlan[], values: ColumnFilt
 
 	const filter = combineWithAnd(conditions);
 	if (filter) {
-		if (unsupportedKeys.length > 0) return { filter, invalidKeys, status: 'unsupported', unsupportedKeys };
-		if (invalidKeys.length > 0) return { filter, invalidKeys, status: 'invalid', unsupportedKeys };
-		return { filter, invalidKeys, status: 'valid', unsupportedKeys };
+		if (limitedKeys.length > 0) return { filter, invalidKeys, limitedKeys, status: 'limited', unsupportedKeys };
+		if (unsupportedKeys.length > 0) return { filter, invalidKeys, limitedKeys, status: 'unsupported', unsupportedKeys };
+		if (invalidKeys.length > 0) return { filter, invalidKeys, limitedKeys, status: 'invalid', unsupportedKeys };
+		return { filter, invalidKeys, limitedKeys, status: 'valid', unsupportedKeys };
 	}
 
-	return { filter: null, invalidKeys, status: 'unsupported', unsupportedKeys };
+	return { filter: null, invalidKeys, limitedKeys, status: 'unsupported', unsupportedKeys };
 }
 
 function buildPlanCondition(plan: ColumnPlan, term: string, partialTemporal: boolean): FilterNode | null {
@@ -116,9 +136,7 @@ function buildTokenizedTextCondition(leaves: SearchLeaf[], term: string): Filter
 
 	return combineWithAnd(
 		tokens
-			.map((token) =>
-				combineWithOr(textLeaves.map((leaf) => nestPath(leaf.path, { _icontains: token })).filter(isFilterNode)),
-			)
+			.map((token) => combineWithOr(textLeaves.map((leaf) => buildLeafCondition(leaf, token)).filter(isFilterNode)))
 			.filter(isFilterNode),
 	);
 }
@@ -150,11 +168,25 @@ export function buildLeafCondition(leaf: SearchLeaf, term: string): FilterNode |
 		if (value !== null) operation = { _eq: value };
 	} else if (kind === 'uuid') {
 		if (isUuid(term)) operation = { _eq: term };
-	} else if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
+	} else if (kind === 'date' || kind === 'dateTime' || kind === 'time' || kind === 'timestamp') {
 		if (isDateValue(leaf.type, term)) operation = { _eq: term } as FilterNode;
 	}
 
-	return operation ? nestPath(leaf.path, operation) : null;
+	const conditions = [operation ? nestPath(leaf.path, operation) : null, buildChoiceCondition(leaf, term)].filter(
+		isFilterNode,
+	);
+	return combineWithOr(conditions);
+}
+
+function buildChoiceCondition(leaf: SearchLeaf, term: string): FilterNode | null {
+	const normalizedTerm = term.toLocaleLowerCase();
+	const values = (leaf.choices ?? [])
+		.filter(({ text }) => text.toLocaleLowerCase().includes(normalizedTerm))
+		.map(({ value }) => value)
+		.filter((value, index, all) => all.indexOf(value) === index);
+
+	if (values.length === 0) return null;
+	return nestPath(leaf.path, values.length === 1 ? { _eq: values[0] } : { _in: values });
 }
 
 function parseNumber(type: string, term: string): number | string | null {
@@ -220,7 +252,7 @@ function isDateValue(type: string, value: string): boolean {
 
 	const offsetHour = Number(match[5]);
 	const offsetMinute = Number(match[6]);
-	return offsetHour <= 23 && offsetMinute <= 59;
+	return offsetMinute <= 59 && (offsetHour < 14 || (offsetHour === 14 && offsetMinute === 0));
 }
 
 function isValidDate(value: string): boolean {
@@ -261,4 +293,16 @@ function uniqueLeaves(leaves: SearchLeaf[]): SearchLeaf[] {
 		seen.add(key);
 		return true;
 	});
+}
+
+function exceedsSearchLimits(leaves: SearchLeaf[], term: string): boolean {
+	if (term.length > MAX_SEARCH_TERM_LENGTH) return true;
+
+	const tokens = term.split(/\s+/u).filter(Boolean);
+	if (tokens.length > MAX_SEARCH_TOKEN_COUNT) return true;
+
+	const unique = uniqueLeaves(leaves);
+	const textLeafCount = unique.filter((leaf) => getSearchValueKind(leaf.type) === 'text').length;
+	const estimatedClauses = unique.length + (tokens.length > 1 ? tokens.length * textLeafCount : 0);
+	return estimatedClauses > MAX_GENERATED_SEARCH_CLAUSES;
 }

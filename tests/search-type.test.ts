@@ -10,7 +10,7 @@ describe('search value kinds', () => {
 		expect(getSearchValueKind('boolean')).toBe('boolean');
 		expect(getSearchValueKind('date')).toBe('date');
 		expect(getSearchValueKind('dateTime')).toBe('dateTime');
-		expect(getSearchValueKind('timestamp')).toBe('dateTime');
+		expect(getSearchValueKind('timestamp')).toBe('timestamp');
 		expect(getSearchValueKind('time')).toBe('time');
 		expect(getSearchValueKind('uuid')).toBe('uuid');
 		expect(getSearchValueKind('csv')).toBe('text');

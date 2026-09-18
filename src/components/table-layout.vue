@@ -15,6 +15,7 @@ import {
 
 import ColumnFilterControl from './column-filter-control.vue';
 import type { ColumnFilterIssue, LayoutComponentProps, TableHeader, TableSort } from '../types';
+import { getColumnFilterControlConfig } from '../utils/filter-control';
 import { getInlineFilterControlWidth, shouldExpandInlineFilterLeft } from '../utils/filter-width';
 import { getValueAtPath } from '../utils/object';
 import { getTableGridMetrics } from '../utils/table-grid';
@@ -78,6 +79,8 @@ const filterNotices = computed(() => {
 		notices.push('None of the visible columns can be searched, so the current search matches no rows.');
 	} else if (props.searchStatus === 'invalid') {
 		notices.push('The search term does not fit any searchable visible column, so it matches no rows.');
+	} else if (props.searchStatus === 'limited') {
+		notices.push('The search is too long or complex. Shorten it to keep the request safe.');
 	}
 
 	const unsupported = describeIssuedColumns('unsupported');
@@ -94,6 +97,13 @@ const filterNotices = computed(() => {
 		notices.push(`The filter values for ${invalid.join(', ')} do not fit those columns, so they match no rows.`);
 	}
 
+	const limited = describeIssuedColumns('limited');
+	if (limited.length === 1)
+		notices.push(`The filter for ${limited[0]} is too long or complex. Shorten it and try again.`);
+	else if (limited.length > 1) {
+		notices.push(`The filters for ${limited.join(', ')} are too long or complex. Shorten them and try again.`);
+	}
+
 	return notices;
 });
 
@@ -107,7 +117,12 @@ function columnFilterIssueHint(field: string): string | undefined {
 	const issue = props.columnFilterIssues[field];
 	if (issue === 'unsupported') return 'This column cannot be searched, so its filter matches no rows.';
 	if (issue === 'invalid') return 'This value does not fit the column, so it matches no rows.';
+	if (issue === 'limited') return 'This value is too long or complex, so it matches no rows.';
 	return undefined;
+}
+
+function columnFilterVisibleHint(field: string): string | undefined {
+	return getColumnFilterControlConfig(props.columnFilterKinds[field] ?? 'unsupported').visibleHint;
 }
 
 const inlineFilterGridStyle = computed<CSSProperties>(() => ({
@@ -280,7 +295,12 @@ function displayValue(item: Item, field: string): unknown {
 					:class="{ 'column-filter--invalid': columnFilterIssues[header.value] }"
 					:title="columnFilterIssueHint(header.value)"
 				>
-					<span class="column-filter__label" :title="header.description || header.text">{{ header.text }}</span>
+					<span class="column-filter__label" :title="header.description || header.text">
+						<span>{{ header.text }}</span>
+						<span v-if="columnFilterVisibleHint(header.value)" class="column-filter__hint">
+							{{ columnFilterVisibleHint(header.value) }}
+						</span>
+					</span>
 					<column-filter-control
 						:model-value="draftColumnFilters[header.value] || ''"
 						:kind="columnFilterKinds[header.value] || 'unsupported'"
@@ -302,7 +322,10 @@ function displayValue(item: Item, field: string): unknown {
 
 				<label v-for="(header, index) in tableHeaders" :key="header.value" class="inline-column-filter">
 					<span class="inline-column-filter__label" :title="header.description || header.text">
-						{{ header.text }}
+						<span>{{ header.text }}</span>
+						<span v-if="columnFilterVisibleHint(header.value)" class="column-filter__hint">
+							{{ columnFilterVisibleHint(header.value) }}
+						</span>
 					</span>
 					<span
 						class="inline-column-filter__control"
@@ -529,11 +552,31 @@ function displayValue(item: Item, field: string): unknown {
 }
 
 .column-filter__label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 	overflow: hidden;
 	color: var(--theme--foreground-subdued);
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.column-filter__label > span:first-child,
+.inline-column-filter__label > span:first-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.column-filter__hint {
+	flex: 0 0 auto;
+	padding: 0 4px;
+	color: var(--theme--primary);
+	font-size: 9px;
+	font-weight: 600;
+	line-height: 14px;
+	background: var(--theme--primary-background);
+	border-radius: 3px;
 }
 
 .inline-column-filters {
@@ -569,7 +612,9 @@ function displayValue(item: Item, field: string): unknown {
 }
 
 .inline-column-filter__label {
-	display: block;
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	overflow: hidden;
 	color: var(--theme--foreground-subdued);
 	font-size: 11px;

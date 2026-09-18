@@ -91,19 +91,8 @@ describe('partial temporal filters', () => {
 		});
 	});
 
-	it('supports timestamp fields and nested relation paths', () => {
-		expect(buildPartialTemporalCondition({ path: 'event.recorded_at', type: 'timestamp' }, '01.01.2026 1')).toEqual({
-			_and: [
-				{ event: { 'day(recorded_at)': { _eq: 1 } } },
-				{ event: { 'month(recorded_at)': { _eq: 1 } } },
-				{ event: { 'year(recorded_at)': { _eq: 2026 } } },
-				{
-					event: {
-						'hour(recorded_at)': { _in: [1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
-					},
-				},
-			],
-		});
+	it('does not apply timezone-blind date-part functions to timestamp fields', () => {
+		expect(buildPartialTemporalCondition({ path: 'event.recorded_at', type: 'timestamp' }, '01.01.2026 1')).toBeNull();
 	});
 
 	it('uses valid no-match conditions for invalid input', () => {

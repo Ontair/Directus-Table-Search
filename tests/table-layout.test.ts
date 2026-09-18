@@ -215,4 +215,21 @@ describe('TableLayout filter feedback', () => {
 
 		expect(wrapper.find('.inline-column-filter__control--invalid').exists()).toBe(true);
 	});
+
+	it('keeps exact-match guidance visible after a value is entered', () => {
+		const { wrapper } = mountLayout({
+			columnFilterKinds: { views: 'number' },
+			columnFilters: { views: '42' },
+			showColumnFilters: true,
+			tableHeaders: [header('views', 'Views')],
+		});
+
+		expect(wrapper.get('.column-filter__hint').text()).toBe('Exact value');
+	});
+
+	it('explains when a search is rejected by the complexity guard', () => {
+		const { wrapper } = mountLayout({ items: [], itemCount: 0, searchStatus: 'limited' });
+
+		expect(wrapper.get('.notice').text()).toContain('too long or complex');
+	});
 });
