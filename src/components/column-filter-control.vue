@@ -31,12 +31,19 @@ const booleanDisplayValue = computed(
 	() => booleanItems.find(({ value }) => value === props.modelValue)?.text ?? config.value.placeholder,
 );
 const temporalKind = computed<TemporalFilterType | null>(() => {
-	if (props.kind === 'date' || props.kind === 'dateTime' || props.kind === 'time') return props.kind;
+	if (props.kind === 'date' || props.kind === 'dateTime' || props.kind === 'time' || props.kind === 'timestamp') {
+		return props.kind;
+	}
 	return null;
 });
 const temporalParts = ref<TemporalFilterParts>({});
-const includesDate = computed(() => temporalKind.value === 'date' || temporalKind.value === 'dateTime');
-const includesTime = computed(() => temporalKind.value === 'time' || temporalKind.value === 'dateTime');
+const includesDate = computed(
+	() => temporalKind.value === 'date' || temporalKind.value === 'dateTime' || temporalKind.value === 'timestamp',
+);
+const includesTime = computed(
+	() => temporalKind.value === 'time' || temporalKind.value === 'dateTime' || temporalKind.value === 'timestamp',
+);
+const includesDateAndTime = computed(() => temporalKind.value === 'dateTime' || temporalKind.value === 'timestamp');
 const focusedTemporalPart = ref<keyof TemporalFilterParts | null>(null);
 const temporalPartRanges: Partial<Record<keyof TemporalFilterParts, { max: number; min: number }>> = {
 	day: { max: 31, min: 1 },
@@ -243,7 +250,7 @@ function emitTemporalPart(component: keyof TemporalFilterParts, value: string): 
 					@keydown="handleTemporalKeydown"
 				/>
 			</div>
-			<span v-if="temporalKind === 'dateTime'" class="temporal-filter__separator">,</span>
+			<span v-if="includesDateAndTime" class="temporal-filter__separator">,</span>
 			<div v-if="includesTime" class="temporal-filter__group">
 				<input
 					:value="temporalParts.hour ?? ''"

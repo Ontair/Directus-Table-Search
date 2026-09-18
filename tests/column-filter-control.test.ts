@@ -27,6 +27,7 @@ describe('ColumnFilterControl', () => {
 
 	it.each([
 		['dateTime', 'Hour', '7', '@t:,,,07,,'],
+		['timestamp', 'Hour', '7', '@t:,,,07,,'],
 		['time', 'Minute', '5', '@t:,,,,5,'],
 	] as const)('allows any %s segment to be entered independently', async (kind, label, value, encoded) => {
 		const wrapper = mount(ColumnFilterControl, {

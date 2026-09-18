@@ -102,6 +102,16 @@ describe('filter generation', () => {
 		});
 	});
 
+	it('keeps manually supplied exact ISO timestamp filters compatible', () => {
+		const timestampPlans: ColumnPlan[] = [
+			{ key: 'recorded_at', searchLeaves: [{ path: 'recorded_at', type: 'timestamp' }] },
+		];
+
+		expect(buildColumnFilters(timestampPlans, { recorded_at: '2026-06-06T06:42:00.000Z' })).toEqual({
+			recorded_at: { _eq: '2026-06-06T06:42:00.000Z' },
+		});
+	});
+
 	it('keeps existing Directus filters active', () => {
 		const existing = { status: { _eq: 'published' } };
 		const global = buildGlobalSearchFilter(plans, 'guide');

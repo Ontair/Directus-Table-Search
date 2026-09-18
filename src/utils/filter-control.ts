@@ -38,9 +38,12 @@ export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): Col
 		};
 	}
 
-	if (kind === 'date' || kind === 'dateTime' || kind === 'time') {
+	if (kind === 'date' || kind === 'dateTime' || kind === 'time' || kind === 'timestamp') {
 		return {
-			helpText: 'Fill any date or time segment. Every populated segment is applied immediately.',
+			helpText:
+				kind === 'timestamp'
+					? 'Enter local browser time. It is converted to the corresponding UTC value before filtering.'
+					: 'Fill any date or time segment. Every populated segment is applied immediately.',
 			inputType: 'text',
 			placeholder: kind === 'date' ? 'DD.MM.YYYY' : kind === 'time' ? 'HH:MM:SS' : 'DD.MM.YYYY, HH:MM:SS',
 		};
@@ -52,15 +55,6 @@ export function getColumnFilterControlConfig(kind: ColumnFilterControlKind): Col
 			inputType: 'text',
 			placeholder: 'Exact UUID…',
 			visibleHint: 'Exact value',
-		};
-	}
-
-	if (kind === 'timestamp') {
-		return {
-			helpText: 'Enter the complete ISO timestamp. Partial local-time matching is not timezone-safe.',
-			inputType: 'text',
-			placeholder: 'Exact ISO timestamp…',
-			visibleHint: 'Exact ISO value',
 		};
 	}
 
