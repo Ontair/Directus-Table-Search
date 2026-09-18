@@ -58,10 +58,13 @@ describe('buildExportQuery', () => {
 		expect(buildExportQuery({ ...base, fields: [], filter: null, sort: [] })).toEqual({ limit: -1 });
 	});
 
-	it('propagates a content version only to a bounded download', () => {
+	it('propagates a content version to a bounded download', () => {
 		expect(buildExportQuery({ ...base, scope: 'page', version: 'draft' }).version).toBe('draft');
 		expect(buildExportQuery({ ...base, scope: 'selection', selection: [1], version: 'draft' }).version).toBe('draft');
-		expect(buildExportQuery({ ...base, scope: 'all', version: 'draft' }).version).toBeUndefined();
+	});
+
+	it('rejects an unbounded export that would silently drop the content version', () => {
+		expect(() => buildExportQuery({ ...base, scope: 'all', version: 'draft' })).toThrow('content version');
 	});
 });
 

@@ -34,6 +34,10 @@ export interface ExportQueryInput {
  * exported rows and the visible rows provably identical.
  */
 export function buildExportQuery(input: ExportQueryInput): ExportQuery {
+	if (input.scope === 'all' && input.version) {
+		throw new Error('A content version cannot be exported through the unbounded server export route.');
+	}
+
 	const filter = getScopedFilter(input);
 	const query: ExportQuery = { limit: input.scope === 'page' ? input.limit : -1 };
 
@@ -42,10 +46,7 @@ export function buildExportQuery(input: ExportQueryInput): ExportQuery {
 	if (input.sort.length > 0) query.sort = [...input.sort];
 	if (input.scope === 'page') query.offset = Math.max(0, (input.page - 1) * input.limit);
 
-	// A content version belongs to one item being edited, so it only makes
-	// sense for a bounded download; the server export always reads the
-	// published data.
-	if (input.version && isLocalDownloadScope(input.scope)) query.version = input.version;
+	if (input.version) query.version = input.version;
 
 	return query;
 }
